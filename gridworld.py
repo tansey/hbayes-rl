@@ -5,36 +5,40 @@ Wilson, Aaron, et al. "Multi-Task Reinforcement Learning: A
 Hierarchical Bayesian Approach." Proceedings of the 24th International
 Conference on Machine Learning (ICML'07). ACM, 2007.
 
+To explore:
+- Simultaneous tasks
+- Gaps in observations
+- Shared parameters across all MDPs
 """
 
 class Agent(object):
     """
     An abstract base class that grid world agents must extend.
     """
-    def __init__(self, num_bandits):
-        self.num_bandits = num_bandits
+    def __init__(self, domains):
+        self.domains = domains
 
-    def episode_starting(self, state):
+    def episode_starting(self, idx, state):
         pass
 
-    def episode_over(self):
+    def episode_over(self, idx):
         pass
 
-    def get_action(self):
+    def get_action(self, idx):
         pass
 
-    def set_state(self, state):
-        self.state = state
+    def set_state(self, idx, state):
+        self.domains[idx] = state
 
-    def observe_reward(self, r):
+    def observe_reward(self, idx, r):
         pass
 
 class GridWorld(object):
-    def __init__(self, max_moves = 100, num_bandits = 20, agent = None):
-        self.max_moves = max_moves
-        self.num_bandits = num_bandits
+    def __init__(self, agent = None, width = 16, height = 16, max_moves = 100):
         self.agent = agent
-        self.bandits = [Bandit() for _ in range(self.num_bandits)]
+        self.width = width
+        self.height = height
+        self.max_moves = max_moves
 
     def play_episode(self):
         state = START
