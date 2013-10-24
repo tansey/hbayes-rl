@@ -58,7 +58,7 @@ class GridWorld(object):
 
     def build_cells(self):
         self.cell_colors = np.array([[random.randrange(len(self.color_means)) for y in range(self.height)] for x in range(self.width)])
-        self.cell_means = np.array([[0 for y in range(height)] for x in range(width)])
+        self.cell_means = np.array([[self.color_means[self.cell_colors[x][y]] for y in range(height)] for x in range(width)])
         for x in range(width):
             for y in range(height):
                 if x > 0:
