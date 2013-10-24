@@ -9,7 +9,15 @@ To explore:
 - Simultaneous tasks
 - Gaps in observations
 - Shared parameters across all MDPs
+- MPDs composed of multiple classes
 """
+import random
+import numpy as np
+
+UP = 1
+DOWN = 2
+RIGHT = 3
+LEFT = 4
 
 class Agent(object):
     """
@@ -34,31 +42,62 @@ class Agent(object):
         pass
 
 class GridWorld(object):
-    def __init__(self, agent = None, width = 16, height = 16, max_moves = 100):
+    def __init__(self, task_id, agent = None, width = 15, height = 15, max_moves = 100, num_colors = 8, start = (0,0), goals = None):
+        self.task_id = task_id
         self.agent = agent
         self.width = width
         self.height = height
         self.max_moves = max_moves
+        self.cells = np.array([[random.randrange(num_colors) for y in range(height)] for x in range(width)])
+        self.start = start
+        if goals is None:
+            goals = []
+        self.goals = goals
+        self.episode_running = False
+
+    def start(self):
+        self.prev_state = None
+        self.state = self.start
+        self.total_reward = 0
+        self.episode_running = True
+        self.agent.episode_starting(self.task_id, self.state)
+
+    def reward(self, action):
+        pass
+
+    def transition(self, action):
+        """
+        Transition function given an action. The default grid world uses a deterministic
+        transition that simply moves the agent where it wants to go, unless it hits a wall.
+        """
+        self.prev_state = self.state
+        if action == LEFT:
+            self.state = (max(0, self.state[0] - 1), self.state[1])
+        elif action == RIGHT:
+            self.state = (min(self.width-1, self.state[0] + 1), self.state[1])
+        elif action == UP:
+            self.state = (self.state[0], max(0, self.state[1]-1))
+        elif action == DOWN:
+            self.state = (self.state[0], min(self.height-1, self.state[1]-1))
+        
+    def step(self):
+        assert(self.episode_running)
+        action = self.agent.get_action(self)
+        self.transition(action)
+        r = self.reward(action)
+        self.total_reward += r
+        self.agent.observe_reward(self.task_id, r)
+        self.set_state(self.state)
+        if self.state in self.goals:
+            self.agent.episode_over(self.task_id)
+            self.episode_running = False
 
     def play_episode(self):
-        state = START
-        total_reward = 0
-        self.agent.episode_starting(state)
+        self.start()
         for i in range(self.max_moves):
-            bidx = self.agent.get_bandit()
-            assert(bidx >= 0)
-            assert(bidx < self.num_bandits)
-            bandit = self.bandits[bidx]
-            action = bandit.sample()
-            self.agent.observe_action(action)
-            sr = REWARDS[(state, action)]
-            total_reward += sr[1]
-            self.agent.observe_reward(sr[1])
-            state = sr[0]
-            self.agent.set_state(state)
-            if state == GOAL:
+            self.step()
+            if not self.episode_running:
                 break
-        self.agent.episode_over()
         return total_reward
 
 if __name__ == "__main__":
