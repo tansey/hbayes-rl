@@ -42,18 +42,33 @@ class Agent(object):
         pass
 
 class GridWorld(object):
-    def __init__(self, task_id, agent = None, width = 15, height = 15, max_moves = 100, num_colors = 8, start = (0,0), goals = None):
+    def __init__(self, task_id, agent = None, width = 15, height = 15, max_moves = 100, color_means = (-1), start = (0,0), goals = None):
         self.task_id = task_id
         self.agent = agent
         self.width = width
         self.height = height
         self.max_moves = max_moves
-        self.cells = np.array([[random.randrange(num_colors) for y in range(height)] for x in range(width)])
+        self.color_means = color_means
+        self.build_cells()
         self.start = start
         if goals is None:
-            goals = []
+            goals = ()
         self.goals = goals
         self.episode_running = False
+
+    def build_cells(self):
+        self.cell_colors = np.array([[random.randrange(len(self.color_means)) for y in range(self.height)] for x in range(self.width)])
+        self.cell_means = np.array([[0 for y in range(height)] for x in range(width)])
+        for x in range(width):
+            for y in range(height):
+                if x > 0:
+                    self.cell_means[x][y] += self.color_means[self.cell_colors[x-1][y]]
+                if x < (self.width - 1):
+                    self.cell_means[x][y] += self.color_means[self.cell_colors[x+1][y]]
+                if y > 0:
+                    self.cell_means[x][y] += self.color_means[self.cell_colors[x][y-1]]
+                if y < (self.height - 1):
+                    self.cell_means[x][y] += self.color_means[self.cell_colors[x][y+1]]
 
     def start(self):
         self.prev_state = None
@@ -63,7 +78,9 @@ class GridWorld(object):
         self.agent.episode_starting(self.task_id, self.state)
 
     def reward(self, action):
-        pass
+        # TODO: What should the variance be? Does it sum over all nearby cells or is it constant?
+        #       Note that this is not really clear from the paper.
+        return random.normalvariate(self.cell_means[self.state[0], self.state[1]], 1)
 
     def transition(self, action):
         """
