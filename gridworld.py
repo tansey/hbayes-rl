@@ -12,6 +12,7 @@ To explore:
 - MPDs composed of multiple classes
 """
 import random
+import math
 import numpy as np
 
 UP = 1
@@ -42,7 +43,7 @@ class Agent(object):
         pass
 
 class GridWorld(object):
-    def __init__(self, task_id, agent = None, width = 15, height = 15, max_moves = 100, color_means = (-1), start = (0,0), goals = None):
+    def __init__(self, task_id, agent = None, width = 15, height = 15, max_moves = 100, color_means = (-1), start = (0,0), goal = None):
         self.task_id = task_id
         self.agent = agent
         self.width = width
@@ -50,29 +51,30 @@ class GridWorld(object):
         self.max_moves = max_moves
         self.color_means = color_means
         self.build_cells()
-        self.start = start
-        if goals is None:
-            goals = ()
-        self.goals = goals
+        self.start_state = start
+        if goal is None:
+            goal = (width-1,height-1)
+        self.goal = goal
         self.episode_running = False
+        self.state = None
 
     def build_cells(self):
         self.cell_colors = np.array([[random.randrange(len(self.color_means)) for y in range(self.height)] for x in range(self.width)])
-        self.cell_means = np.array([[self.color_means[self.cell_colors[x][y]] for y in range(height)] for x in range(width)])
-        for x in range(width):
-            for y in range(height):
+        self.cell_means = np.array([[self.color_means[self.cell_colors[x,y]] for y in range(self.height)] for x in range(self.width)])
+        for x in range(self.width):
+            for y in range(self.height):
                 if x > 0:
-                    self.cell_means[x][y] += self.color_means[self.cell_colors[x-1][y]]
+                    self.cell_means[x][y] += self.color_means[self.cell_colors[x-1,y]]
                 if x < (self.width - 1):
-                    self.cell_means[x][y] += self.color_means[self.cell_colors[x+1][y]]
+                    self.cell_means[x][y] += self.color_means[self.cell_colors[x+1,y]]
                 if y > 0:
-                    self.cell_means[x][y] += self.color_means[self.cell_colors[x][y-1]]
+                    self.cell_means[x][y] += self.color_means[self.cell_colors[x,y-1]]
                 if y < (self.height - 1):
-                    self.cell_means[x][y] += self.color_means[self.cell_colors[x][y+1]]
+                    self.cell_means[x][y] += self.color_means[self.cell_colors[x,y+1]]
 
     def start(self):
         self.prev_state = None
-        self.state = self.start
+        self.state = self.start_state
         self.total_reward = 0
         self.episode_running = True
         self.agent.episode_starting(self.task_id, self.state)
@@ -105,7 +107,7 @@ class GridWorld(object):
         self.total_reward += r
         self.agent.observe_reward(self.task_id, r)
         self.set_state(self.state)
-        if self.state in self.goals:
+        if self.state == self.goal:
             self.agent.episode_over(self.task_id)
             self.episode_running = False
 
@@ -117,6 +119,45 @@ class GridWorld(object):
                 break
         return total_reward
 
+    def print_world(self):
+        cell_width = 7
+        side_width = int(math.floor(cell_width/2))
+        side_space = ' '*side_width
+        print '# colors: {0}'.format(len(self.color_means))
+        for color,mean in enumerate(self.color_means):
+            print '{0}) mean={1}'.format(color, mean)
+        print '-' * ((cell_width+1)*self.width+1)
+        for y in range(self.height):
+            if y != self.goal[1]:
+                top = '|' + (side_space + '^' + side_space + '|') * self.width
+                bottom = '|' + (side_space + 'v' + side_space + '|') * self.width
+            else:
+                top = '|' + (side_space + '^' + side_space + '|') * (self.width-1) + ' ' * cell_width + '|'
+                bottom = '|' + (side_space + 'v' + side_space + '|') * (self.width-1) + ' ' * cell_width + '|'
+            blank = '|' + (' ' * cell_width + '|') * self.width
+            state_line = '|'
+            reward_line = '|'
+            color_line = '|'
+            for x in range(self.width):
+                state_text = ''
+                if (x,y) == self.goal:
+                    state_text += '**'
+                    reward_line += '{0}'.format(self.cell_means[x,y]).center(cell_width) + '|'
+                else:
+                    reward_line += '<' + '{0}'.format(self.cell_means[x,y]).center(cell_width-2) + '>|'
+                if self.agent is not None and self.state == (x,y):
+                    state_text += 'X'
+                state_line += state_text.center(cell_width) + '|'
+                color_line += 'C={0}'.format(self.cell_colors[x,y]).center(cell_width) + '|'
+            print top
+            print state_line
+            print reward_line
+            print color_line
+            print bottom
+            print '-' * ((cell_width+1)*self.width+1)
+
 if __name__ == "__main__":
-    build_rewards()
-    print_world()
+    agent = Agent(None)
+    world = GridWorld(0, agent, 10, 10, 100, (-1,-5,-10,-3), (0,0), None)
+    world.start()
+    world.print_world()
