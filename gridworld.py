@@ -9,7 +9,7 @@ To explore:
 - Simultaneous tasks
 - Gaps in observations
 - Shared parameters across all MDPs
-- MPDs composed of multiple classes
+- Each MPD composed of multiple classes
 """
 import random
 import math
@@ -43,13 +43,13 @@ class Agent(object):
         pass
 
 class GridWorld(object):
-    def __init__(self, task_id, agent = None, width = 15, height = 15, max_moves = 100, color_means = (-1), start = (0,0), goal = None):
+    def __init__(self, task_id, agent = None, width = 15, height = 15, max_moves = 100, color_scores = (-1), start = (0,0), goal = None):
         self.task_id = task_id
         self.agent = agent
         self.width = width
         self.height = height
         self.max_moves = max_moves
-        self.color_means = color_means
+        self.color_scores = color_scores
         self.build_cells()
         self.start_state = start
         if goal is None:
@@ -59,18 +59,18 @@ class GridWorld(object):
         self.state = None
 
     def build_cells(self):
-        self.cell_colors = np.array([[random.randrange(len(self.color_means)) for y in range(self.height)] for x in range(self.width)])
-        self.cell_means = np.array([[self.color_means[self.cell_colors[x,y]] for y in range(self.height)] for x in range(self.width)])
+        self.cell_colors = np.array([[random.randrange(len(self.color_scores)) for y in range(self.height)] for x in range(self.width)])
+        self.cell_values = np.array([[self.color_scores[self.cell_colors[x,y]] for y in range(self.height)] for x in range(self.width)])
         for x in range(self.width):
             for y in range(self.height):
                 if x > 0:
-                    self.cell_means[x][y] += self.color_means[self.cell_colors[x-1,y]]
+                    self.cell_values[x][y] += self.color_scores[self.cell_colors[x-1,y]]
                 if x < (self.width - 1):
-                    self.cell_means[x][y] += self.color_means[self.cell_colors[x+1,y]]
+                    self.cell_values[x][y] += self.color_scores[self.cell_colors[x+1,y]]
                 if y > 0:
-                    self.cell_means[x][y] += self.color_means[self.cell_colors[x,y-1]]
+                    self.cell_values[x][y] += self.color_scores[self.cell_colors[x,y-1]]
                 if y < (self.height - 1):
-                    self.cell_means[x][y] += self.color_means[self.cell_colors[x,y+1]]
+                    self.cell_values[x][y] += self.color_scores[self.cell_colors[x,y+1]]
 
     def start(self):
         self.prev_state = None
@@ -80,9 +80,7 @@ class GridWorld(object):
         self.agent.episode_starting(self.task_id, self.state)
 
     def reward(self, action):
-        # TODO: What should the variance be? Does it sum over all nearby cells or is it constant?
-        #       Note that this is not really clear from the paper.
-        return random.normalvariate(self.cell_means[self.state[0], self.state[1]], 1)
+        return self.cell_values[self.state[0], self.state[1]]
 
     def transition(self, action):
         """
@@ -120,12 +118,12 @@ class GridWorld(object):
         return total_reward
 
     def print_world(self):
-        cell_width = 7
+        cell_width = 11
         side_width = int(math.floor(cell_width/2))
         side_space = ' '*side_width
-        print '# colors: {0}'.format(len(self.color_means))
-        for color,mean in enumerate(self.color_means):
-            print '{0}) mean={1}'.format(color, mean)
+        print '{0} Colors'.format(len(self.color_scores))
+        for color,score in enumerate(self.color_scores):
+            print '{0}) value = {1}'.format(color, score)
         print '-' * ((cell_width+1)*self.width+1)
         for y in range(self.height):
             if y != self.goal[1]:
@@ -142,9 +140,9 @@ class GridWorld(object):
                 state_text = ''
                 if (x,y) == self.goal:
                     state_text += '**'
-                    reward_line += '{0}'.format(self.cell_means[x,y]).center(cell_width) + '|'
+                    reward_line += '{0:.2f}'.format(self.cell_values[x,y]).center(cell_width) + '|'
                 else:
-                    reward_line += '<' + '{0}'.format(self.cell_means[x,y]).center(cell_width-2) + '>|'
+                    reward_line += '<' + '{0:.2f}'.format(self.cell_values[x,y]).center(cell_width-2) + '>|'
                 if self.agent is not None and self.state == (x,y):
                     state_text += 'X'
                 state_line += state_text.center(cell_width) + '|'
@@ -158,6 +156,9 @@ class GridWorld(object):
 
 if __name__ == "__main__":
     agent = Agent(None)
-    world = GridWorld(0, agent, 10, 10, 100, (-1,-5,-10,-3), (0,0), None)
+    color_means = (-4,-5,-2,-3)
+    # TODO: What should the variance be? The paper does not specify values here.
+    color_scores = np.array([random.normalvariate(mu, 1) for mu in color_means])
+    world = GridWorld(0, agent, 10, 10, 100, color_scores, (0,0), None)
     world.start()
     world.print_world()
