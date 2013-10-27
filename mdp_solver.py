@@ -19,7 +19,7 @@ def value_iteration(world, cell_rewards, discount=1.0, convergence=0.01):
 				v = cell_values[x,y]
 
 				if (x,y) == world.goal:
-					cell_values[x,y] = cell_rewards[x,y]
+					cell_values[x,y] = 0
 				else:
 					# v' is the max possible reward of the next state plus the value of that next state
 					if x > 0:
