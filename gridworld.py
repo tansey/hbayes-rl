@@ -117,7 +117,9 @@ class GridWorld(object):
                 break
         return total_reward
 
-    def print_world(self):
+    def print_world(self, cell_values=None):
+        if cell_values is None:
+            cell_values = self.cell_values
         cell_width = 11
         side_width = int(math.floor(cell_width/2))
         side_space = ' '*side_width
@@ -140,9 +142,9 @@ class GridWorld(object):
                 state_text = ''
                 if (x,y) == self.goal:
                     state_text += '**'
-                    reward_line += '{0:.2f}'.format(self.cell_values[x,y]).center(cell_width) + '|'
+                    reward_line += '{0:.2f}'.format(cell_values[x,y]).center(cell_width) + '|'
                 else:
-                    reward_line += '<' + '{0:.2f}'.format(self.cell_values[x,y]).center(cell_width-2) + '>|'
+                    reward_line += '<' + '{0:.2f}'.format(cell_values[x,y]).center(cell_width-2) + '>|'
                 if self.agent is not None and self.state == (x,y):
                     state_text += 'X'
                 state_line += state_text.center(cell_width) + '|'
