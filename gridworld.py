@@ -5,6 +5,19 @@ Wilson, Aaron, et al. "Multi-Task Reinforcement Learning: A
 Hierarchical Bayesian Approach." Proceedings of the 24th International
 Conference on Machine Learning (ICML'07). ACM, 2007.
 
+During task:
+r ~ N(r | mu, tau)
+mu = w . Q
+
+Task creation:
+w ~ N(w | phi, Sigma)
+Q ~ Un(colors)
+pi(phi, sigma) = NIW
+
+Experiment initialization:
+theta_c ~ multinomial(classes)
+theta_c = (phi_c, Sigma_c)
+
 To explore:
 - Simultaneous tasks
 - Gaps in observations
@@ -15,10 +28,13 @@ import random
 import math
 import numpy as np
 
+CURRENT = 0
 UP = 1
 DOWN = 2
-RIGHT = 3
-LEFT = 4
+LEFT = 3
+RIGHT = 4
+
+RELATIVE_CELL = ['C', 'U', 'D', 'L', 'R']
 
 class Agent(object):
     """
@@ -43,13 +59,17 @@ class Agent(object):
         pass
 
 class GridWorld(object):
-    def __init__(self, task_id, agent = None, width = 15, height = 15, max_moves = 100, color_scores = (-1), start = (0,0), goal = None):
+    def __init__(self, task_id, color_location_weights, reward_stdev = 2, agent = None, width = 15, height = 15, max_moves = 100, start = (0,0), goal = None):
         self.task_id = task_id
+        self.color_location_weights = color_location_weights
+        # We need one weight for every (loc, color) pair
+        assert(len(color_location_weights) % 5 == 0)
+        self.num_colors = len(color_location_weights) / 5
+        self.reward_stdev = reward_stdev
         self.agent = agent
         self.width = width
         self.height = height
         self.max_moves = max_moves
-        self.color_scores = color_scores
         self.build_cells()
         self.start_state = start
         if goal is None:
@@ -59,18 +79,23 @@ class GridWorld(object):
         self.state = None
 
     def build_cells(self):
-        self.cell_colors = np.array([[random.randrange(len(self.color_scores)) for y in range(self.height)] for x in range(self.width)])
-        self.cell_values = np.array([[self.color_scores[self.cell_colors[x,y]] for y in range(self.height)] for x in range(self.width)])
+        self.cell_colors = np.array([[random.randrange(self.num_colors) for y in range(self.height)] for x in range(self.width)])
+        self.cell_means = np.zeros((self.width, self.height))
+        q = np.zeros(self.color_location_weights.shape)
         for x in range(self.width):
             for y in range(self.height):
-                if x > 0:
-                    self.cell_values[x][y] += self.color_scores[self.cell_colors[x-1,y]]
-                if x < (self.width - 1):
-                    self.cell_values[x][y] += self.color_scores[self.cell_colors[x+1,y]]
+                q *= 0 # zero out the weights
+                q[CURRENT*self.num_colors + self.cell_colors[x,y]] = 1
                 if y > 0:
-                    self.cell_values[x][y] += self.color_scores[self.cell_colors[x,y-1]]
+                    q[UP*self.num_colors + self.cell_colors[x,y-1]] = 1
                 if y < (self.height - 1):
-                    self.cell_values[x][y] += self.color_scores[self.cell_colors[x,y+1]]
+                    q[DOWN*self.num_colors + self.cell_colors[x,y+1]] = 1
+                if x > 0:
+                    q[LEFT*self.num_colors + self.cell_colors[x-1,y]] = 1
+                if x < (self.width - 1):
+                    q[RIGHT*self.num_colors + self.cell_colors[x+1,y]] = 1
+                # mu = w . Q
+                self.cell_means[x,y] = np.dot(self.color_location_weights, q)
 
     def start(self):
         self.prev_state = None
@@ -80,7 +105,7 @@ class GridWorld(object):
         self.agent.episode_starting(self.task_id, self.state)
 
     def reward(self, action):
-        return self.cell_values[self.state[0], self.state[1]]
+        return random.normalvariate(self.cell_means[self.state], self.reward_stdev)
 
     def transition(self, action):
         """
@@ -119,13 +144,13 @@ class GridWorld(object):
 
     def print_world(self, cell_values=None):
         if cell_values is None:
-            cell_values = self.cell_values
+            cell_values = self.cell_means
         cell_width = 11
         side_width = int(math.floor(cell_width/2))
         side_space = ' '*side_width
-        print '{0} Colors'.format(len(self.color_scores))
-        for color,score in enumerate(self.color_scores):
-            print '{0}) value = {1}'.format(color, score)
+        print 'Color Weights:'
+        for i,row in enumerate(self.color_location_weights.reshape(5, self.num_colors)):
+            print '{0}: {1}'.format(RELATIVE_CELL[i], row)
         print '-' * ((cell_width+1)*self.width+1)
         for y in range(self.height):
             if y != self.goal[1]:
@@ -158,9 +183,10 @@ class GridWorld(object):
 
 if __name__ == "__main__":
     agent = Agent(None)
-    color_means = (-4,-5,-2,-3)
-    # TODO: What should the variance be? The paper does not specify values here.
-    color_scores = np.array([random.normalvariate(mu, 1) for mu in color_means])
-    world = GridWorld(0, agent, 10, 10, 100, color_scores, (0,0), None)
+    colors = ['red', 'green', 'blue', 'gray']
+    means = np.random.rand(len(colors) * 5) * -10
+    cov = np.random.rand(len(colors) * 5, len(colors) * 5) * 2. - 1.
+    w = np.random.multivariate_normal(means, cov)
+    world = GridWorld(0, w, 2, agent, 10, 10, 100, (0,0), None)
     world.start()
     world.print_world()
