@@ -34,7 +34,11 @@ DOWN = 2
 LEFT = 3
 RIGHT = 4
 
+NUM_ACTIONS = 4
+
 RELATIVE_CELL = ['C', 'U', 'D', 'L', 'R']
+ACTION_NAMES = ['U', 'D', 'L', 'R']
+
 
 class Agent(object):
     """
@@ -42,9 +46,10 @@ class Agent(object):
     """
     def __init__(self, domains):
         self.domains = domains
+        self.state = [None for d in domains]
 
     def episode_starting(self, idx, state):
-        pass
+        self.state[idx] = state
 
     def episode_over(self, idx):
         pass
@@ -53,7 +58,7 @@ class Agent(object):
         pass
 
     def set_state(self, idx, state):
-        self.domains[idx] = state
+        self.state[idx] = state
 
     def observe_reward(self, idx, r):
         pass
@@ -113,23 +118,23 @@ class GridWorld(object):
         transition that simply moves the agent where it wants to go, unless it hits a wall.
         """
         self.prev_state = self.state
-        if action == LEFT:
+        if action == UP:
+            self.state = (self.state[0], max(0, self.state[1]-1))
+        elif action == DOWN:
+            self.state = (self.state[0], min(self.height - 1, self.state[1] + 1))
+        elif action == LEFT:
             self.state = (max(0, self.state[0] - 1), self.state[1])
         elif action == RIGHT:
             self.state = (min(self.width-1, self.state[0] + 1), self.state[1])
-        elif action == UP:
-            self.state = (self.state[0], max(0, self.state[1]-1))
-        elif action == DOWN:
-            self.state = (self.state[0], min(self.height-1, self.state[1]-1))
         
     def step(self):
         assert(self.episode_running)
-        action = self.agent.get_action(self)
+        action = self.agent.get_action(self.task_id)
         self.transition(action)
         r = self.reward(action)
         self.total_reward += r
         self.agent.observe_reward(self.task_id, r)
-        self.set_state(self.state)
+        self.agent.set_state(self.task_id, self.state)
         if self.state == self.goal:
             self.agent.episode_over(self.task_id)
             self.episode_running = False
@@ -140,7 +145,7 @@ class GridWorld(object):
             self.step()
             if not self.episode_running:
                 break
-        return total_reward
+        return self.total_reward
 
     def print_world(self, cell_values=None):
         if cell_values is None:
@@ -182,11 +187,11 @@ class GridWorld(object):
             print '-' * ((cell_width+1)*self.width+1)
 
 if __name__ == "__main__":
-    agent = Agent(None)
+    agent = Agent([])
     colors = ['red', 'green', 'blue', 'gray']
-    means = np.random.rand(len(colors) * 5) * -10
+    means = np.random.rand(len(colors) * 5) * -2
     cov = np.random.rand(len(colors) * 5, len(colors) * 5) * 2. - 1.
     w = np.random.multivariate_normal(means, cov)
-    world = GridWorld(0, w, 2, agent, 10, 10, 100, (0,0), None)
+    world = GridWorld(0, w, 0.1, agent, 10, 10, 100, (0,0), None)
     world.start()
     world.print_world()
