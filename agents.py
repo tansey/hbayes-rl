@@ -55,7 +55,7 @@ class QAgent(Agent):
         for i in range(NUM_ACTIONS):
             action_val = self.q[idx][state[0],state[1],i]
             if debug:
-                print '\tQ[s,{0}] = {1}'.format(ACTION_NAMES[i], action_val)
+                print '\tQ[{0},{1}] = {2}'.format(state, ACTION_NAMES[i], action_val)
             if len(maxi) == 0 or action_val > maxv:
                 maxi = [i]
                 maxv = action_val
@@ -83,8 +83,8 @@ class QAgent(Agent):
 
     def get_policy(self, idx):
         domain = self.domains[idx]
-        pi = np.array([[self.greedy(idx,state=(x,y))[0] for x in range(domain.width)] for y in range(domain.height)])
-        values = np.array([[self.greedy(idx,state=(x,y))[1] for x in range(domain.width)] for y in range(domain.height)])
+        pi = np.array([[self.greedy(idx,state=(x,y), debug=True)[0]+1 for y in range(domain.height)] for x in range(domain.width)])
+        values = np.array([[self.greedy(idx,state=(x,y))[1] for y in range(domain.height)] for x in range(domain.width)])
         return (pi, values)
 
 class SingleTaskBayesianAgent(Agent):
@@ -123,4 +123,5 @@ if __name__ == "__main__":
     print 'VALUES'
     world.print_world(values)
     print 'POLICY'
-    world.print_world(pi)
+    names = np.array(ACTION_NAMES)[pi-1]
+    world.print_world(names)
