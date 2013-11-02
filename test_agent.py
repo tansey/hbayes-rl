@@ -68,6 +68,7 @@ if __name__ == "__main__":
             agent.domains[domain.task_id] = domain
             domain.agent = agent
             steps = 0
+            domain.start()
             while steps < args.teststeps:
                 # Keep restarting the episodes until we've gone the number of steps
                 if not domain.episode_running:
