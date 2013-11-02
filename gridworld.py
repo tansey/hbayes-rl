@@ -44,15 +44,23 @@ class Agent(object):
     """
     An abstract base class that grid world agents must extend.
     """
-    def __init__(self, domains):
-        self.domains = domains
-        self.state = [None for d in domains]
+    def __init__(self, width, height, num_colors, num_domains, name=None):
+        self.name = name
+        self.width = width
+        self.height = height
+        self.colors = num_colors
+        self.domains = [None] * num_domains
+        self.state = [None] * num_domains
+        self.domain_episodes = np.zeros((num_domains))
+        self.total_episodes = 0
+        self.recent_rewards = []
 
     def episode_starting(self, idx, state):
         self.state[idx] = state
 
     def episode_over(self, idx):
-        pass
+        self.total_episodes += 1
+        self.domain_episodes[idx] += 1
 
     def get_action(self, idx):
         pass
@@ -61,7 +69,9 @@ class Agent(object):
         self.state[idx] = state
 
     def observe_reward(self, idx, r):
-        pass
+        self.recent_rewards.append(r)
+        if len(self.recent_rewards) > 10:
+            self.recent_rewards.pop(0)
 
 class GridWorld(object):
     def __init__(self, task_id, color_location_weights, reward_stdev = 2, agent = None, width = 15, height = 15, max_moves = 100, start = (0,0), goal = None):

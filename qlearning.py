@@ -6,33 +6,36 @@ class QAgent(Agent):
     """
     A Q-Learning agent with optimistic initialization.
     """
-    def __init__(self, domains, epsilon = 0.1, alpha = 0.05, gamma = 1.):
-        Agent.__init__(self, domains)
+    def __init__(self, width, height, colors, num_domains, name=None, epsilon = 0.1, alpha = 0.05, gamma = 1.):
+        Agent.__init__(self, width, height, colors, num_domains, name)
+        assert(epsilon >= 0.)
+        assert(epsilon <= 1.)
+        assert(alpha >= 0.)
+        assert(alpha <= 1.)
+        assert(gamma >= 0.)
+        assert(gamma <= 1.)
         self.epsilon = epsilon # Exploration rate
         self.alpha = alpha # Learning rate
         self.gamma = gamma # Discount factor
         # Initialize the state-action tables
-        self.q = [np.zeros((domain.width, domain.height, NUM_ACTIONS)) for domain in self.domains]
-        self.visits = [np.zeros((domain.width, domain.height)) for domain in self.domains]
-        self.q_visits = [np.zeros((domain.width, domain.height, NUM_ACTIONS)) for domain in self.domains]
-        self.update = [False for domain in self.domains]
-        self.prev_state = [None for domain in self.domains]
-        self.prev_action = [None for domain in self.domains]
-        self.prev_reward = [None for domain in self.domains]
-        self.domain_episodes = np.zeros((len(self.domains)))
-        self.total_episodes = 0
-
+        self.q = [np.zeros((width, height, NUM_ACTIONS)) for domain in range(num_domains)]
+        self.visits = [np.zeros((width, height)) for domain in range(num_domains)]
+        self.q_visits = [np.zeros((width, height, NUM_ACTIONS)) for domain in range(num_domains)]
+        self.update = [False for domain in range(num_domains)]
+        self.prev_state = [None for domain in range(num_domains)]
+        self.prev_action = [None for domain in range(num_domains)]
+        self.prev_reward = [None for domain in range(num_domains)]
+        
     def episode_starting(self, idx, state):
         self.update[idx] = False
         self.prev_state[idx] = None
-        Agent.episode_starting(self, idx, state)
+        super(QAgent, self).episode_starting(idx, state)
 
     def episode_over(self, idx):
         if self.update[idx]:
             qidx = (self.prev_state[idx][0], self.prev_state[idx][1], self.prev_action[idx])
             self.q[idx][qidx] += self.alpha * (self.prev_reward[idx] - self.q[idx][qidx])
-        self.total_episodes += 1
-        self.domain_episodes[idx] += 1
+        super(QAgent, self).episode_over(idx)
 
     def get_action(self, idx):
         if self.update[idx]:
@@ -75,46 +78,32 @@ class QAgent(Agent):
 
     def set_state(self, idx, state):
         self.prev_state[idx] = self.state[idx]
-        Agent.set_state(self, idx, state)
+        super(QAgent, self).set_state(idx, state)
         self.visits[idx][state] += 1
 
     def observe_reward(self, idx, r):
         self.prev_reward[idx] = r
+        super(QAgent, self).observe_reward(idx, r)
 
     def get_policy(self, idx):
         domain = self.domains[idx]
-        pi = np.array([[self.greedy(idx,state=(x,y), debug=True)[0]+1 for y in range(domain.height)] for x in range(domain.width)])
+        pi = np.array([[self.greedy(idx,state=(x,y))[0]+1 for y in range(domain.height)] for x in range(domain.width)])
         values = np.array([[self.greedy(idx,state=(x,y))[1] for y in range(domain.height)] for x in range(domain.width)])
         return (pi, values)
 
-class SingleTaskBayesianAgent(Agent):
-    def __init__(self, domains):
-        Agent.__init__(self, domains)
-
-    def episode_starting(self, idx, state):
-        pass
-
-    def episode_over(self, idx):
-        pass
-
-    def get_action(self, idx):
-        pass
-
-    def set_state(self, idx, state):
-        Agent.set_state(self, idx, state)
-
-    def observe_reward(self, idx, r):
-        pass
-
 if __name__ == "__main__":
-    colors = ['red', 'green', 'blue', 'gray']
-    means = np.random.rand(len(colors) * 5) * -10
-    cov = np.random.rand(len(colors) * 5, len(colors) * 5) * 2. - 1.
+    width = 10
+    height = 10
+    colors = 4
+    domains = 2
+    agent = QAgent(width, height, colors, domains, name='Q-Learning Agent', epsilon=0.1, alpha=0.05, gamma=1.)
+    means = np.random.rand(colors * 5) * -10.
+    cov = np.random.rand(colors * 5, colors * 5) * 2. - 1.
     w = np.random.multivariate_normal(means, cov)
     world = GridWorld(0, w, 0.1, None, 10, 10, 100, (0,0), None)
     world2 = GridWorld(0, w, 0.1, None, 10, 10, 100, (0,0), None)
-    agent = QAgent([world,world2], 0.1, 0.05, 1.)
     world.agent = agent
+    agent.domains = [world, world2]
     world.start()
     world.print_world()
     for i in range(1000):
