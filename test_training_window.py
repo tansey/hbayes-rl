@@ -86,12 +86,12 @@ if __name__ == "__main__":
         
     agent_colors = ['red','blue','yellow', 'green', 'orange', 'purple', 'brown'] # max 7 agents
     ax = plt.subplot(111)
-    num_steps = args.teststeps / args.stepsize + 1
+    num_steps = args.teststeps / args.stepsize
     plt.xlim((0,num_steps))
     xvals = np.arange(num_steps)
     for i,rewards in enumerate(agent_rewards):
         # Plot each series
-        plt.plot(xvals, rewards, label=agents[i].name, color=agent_colors[i])
+        plt.plot(xvals, rewards[0:num_steps], label=agents[i].name, color=agent_colors[i])
         #plt.fill_between(xvals, avg[i] + stderr[i], avg[i] - stderr[i], facecolor=colors[i], alpha=0.2)
     plt.xlabel('Number of Steps x {0}'.format(args.stepsize))
     plt.ylabel('Cumulative Reward')
