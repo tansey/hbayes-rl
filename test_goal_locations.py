@@ -34,7 +34,7 @@ def create_domain(task_id, args, classes):
     while goal[0] < 0 or goal[1] < 0 or goal[0] >= args.gridwidth or goal[1] >= args.gridheight:
         goal = np.random.multivariate_normal(clazz.goal_mean, clazz.goal_cov)
         goal = (int(round(goal[0])), int(round(goal[1])))
-    world = GridWorld(task_id, w, args.rstdev, None, args.gridwidth, args.gridheight, args.maxmoves, goal, None)
+    world = GridWorld(task_id, w, args.rstdev, None, args.gridwidth, args.gridheight, args.maxmoves, (0,0), goal)
     return world
 
 if __name__ == "__main__":
@@ -45,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument('--classes', type=int, default=4, help='The number of classes that partition the set of MDPs.')
     # Grid World arguments
     parser.add_argument('--colors', type=int, default=8, help='The number of colors in the MDP. Each cell is one color.')
-    parser.add_argument('--goals', type=int, default=4, help='The number of goal locations.')
+    #parser.add_argument('--goals', type=int, default=4, help='The number of goal locations.')
     parser.add_argument('--gridwidth', type=int, default=20, help='The width of the grid world.')
     parser.add_argument('--gridheight', type=int, default=20, help='The height of the grid world.')
     parser.add_argument('--rstdev', type=float, default=0.1, help='The (known) standard deviation of the reward function.')

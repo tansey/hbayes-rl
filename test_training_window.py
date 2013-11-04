@@ -4,9 +4,15 @@ A script to replicate experiment 1 from the Wilson et. al. (ICML'07) paper.
 import argparse
 from gridworld import *
 from qlearning import QAgent
+import random
 import matplotlib.pyplot as plt
 import numpy as np
 
+class MdpClass(object):
+    def __init__(self, class_id, args):
+        self.class_id = class_id
+        self.weights_mean = (np.random.rand(args.colors * NUM_RELATIVE_CELLS)+1) * -2
+        self.weights_cov = np.random.rand(args.colors * NUM_RELATIVE_CELLS, args.colors * NUM_RELATIVE_CELLS) * 2. - 1.
 
 def get_agents(args):
     agents = []
@@ -18,10 +24,9 @@ def get_agents(args):
             raise Exception('Unsupported agent type: ' + args.agent)
     return agents
 
-def create_domain(task_id, args):
-    means = (np.random.rand(args.colors * 5)+1) * -2
-    cov = np.random.rand(args.colors * 5, args.colors * 5) * 2. - 1.
-    w = np.random.multivariate_normal(means, cov)
+def create_domain(task_id, args, classes):
+    clazz = random.choice(classes)
+    w = np.random.multivariate_normal(clazz.weights_mean, clazz.weights_cov)
     world = GridWorld(task_id, w, args.rstdev, None, args.gridwidth, args.gridheight, args.maxmoves, (0,0), None)
     return world
 
@@ -29,6 +34,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Tests an agent on a multi-task RL gridworld domain.')
     parser.add_argument('agent', choices=['qlearning', 'singlebayes', 'multibayes'])
     # General experiment arguments
+    parser.add_argument('--classes', type=int, default=4, help='The number of classes that partition the set of MDPs.')
     parser.add_argument('--trainsize', type=int, nargs='*', default=[0,4,8,16], help='The number of MDP domains to train before evaluating.')
     parser.add_argument('--testsize', type=int, default=50, help='The number of test MDP domains to average over.')
     parser.add_argument('--teststeps', type=int, default=2500, help='The number of steps to measure in each test MDP.')
@@ -46,8 +52,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     agents = get_agents(args)
-    test_domains = [create_domain(d, args) for d in range(args.testsize)]
-    train_domains = [create_domain(d, args) for d in range(args.testsize, args.testsize+max(args.trainsize))]
+    classes = [MdpClass(i, args) for i in range(args.classes)]
+    test_domains = [create_domain(d, args, classes) for d in range(args.testsize)]
+    train_domains = [create_domain(d, args, classes) for d in range(args.testsize, args.testsize+max(args.trainsize))]
     agent_rewards = []
 
     for agent,training in zip(agents,args.trainsize):
