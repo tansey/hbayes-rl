@@ -35,6 +35,7 @@ LEFT = 3
 RIGHT = 4
 
 NUM_ACTIONS = 4
+NUM_RELATIVE_CELLS = 5
 
 RELATIVE_CELL = ['C', 'U', 'D', 'L', 'R']
 ACTION_NAMES = ['U', 'D', 'L', 'R']
