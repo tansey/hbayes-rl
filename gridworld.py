@@ -52,11 +52,13 @@ class Agent(object):
         self.colors = num_colors
         self.domains = [None] * num_domains
         self.state = [None] * num_domains
+        self.location = [None] * num_domains
         self.domain_episodes = np.zeros((num_domains))
         self.total_episodes = 0
         self.recent_rewards = []
 
-    def episode_starting(self, idx, state):
+    def episode_starting(self, idx, location, state):
+        self.location[idx] = location
         self.state[idx] = state
 
     def episode_over(self, idx):
@@ -66,7 +68,8 @@ class Agent(object):
     def get_action(self, idx):
         pass
 
-    def set_state(self, idx, state):
+    def set_state(self, idx, location, state):
+        self.location[idx] = location
         self.state[idx] = state
 
     def observe_reward(self, idx, r):
@@ -87,56 +90,59 @@ class GridWorld(object):
         self.height = height
         self.max_moves = max_moves
         self.build_cells()
-        self.start_state = start
+        self.start_location = start
         if goal is None:
             goal = (width-1,height-1)
         self.goal = goal
         self.episode_running = False
         self.state = None
+        self.location = None
 
     def build_cells(self):
         self.cell_colors = np.array([[random.randrange(self.num_colors) for y in range(self.height)] for x in range(self.width)])
         self.cell_means = np.zeros((self.width, self.height))
-        q = np.zeros(self.color_location_weights.shape)
+        self.cell_states = np.zeros((self.width, self.height, len(self.color_location_weights)))
         for x in range(self.width):
             for y in range(self.height):
-                q *= 0 # zero out the weights
-                q[CURRENT*self.num_colors + self.cell_colors[x,y]] = 1
+                self.cell_states *= 0 # zero out the weights
+                self.cell_states[x,y,CURRENT*self.num_colors + self.cell_colors[x,y]] = 1
                 if y > 0:
-                    q[UP*self.num_colors + self.cell_colors[x,y-1]] = 1
+                    self.cell_states[x,y,UP*self.num_colors + self.cell_colors[x,y-1]] = 1
                 if y < (self.height - 1):
-                    q[DOWN*self.num_colors + self.cell_colors[x,y+1]] = 1
+                    self.cell_states[x,y,DOWN*self.num_colors + self.cell_colors[x,y+1]] = 1
                 if x > 0:
-                    q[LEFT*self.num_colors + self.cell_colors[x-1,y]] = 1
+                    self.cell_states[x,y,LEFT*self.num_colors + self.cell_colors[x-1,y]] = 1
                 if x < (self.width - 1):
-                    q[RIGHT*self.num_colors + self.cell_colors[x+1,y]] = 1
+                    self.cell_states[x,y,RIGHT*self.num_colors + self.cell_colors[x+1,y]] = 1
                 # mu = w . Q
-                self.cell_means[x,y] = np.dot(self.color_location_weights, q)
+                self.cell_means[x,y] = np.dot(self.color_location_weights, self.cell_states[x,y])
 
     def start(self):
-        self.prev_state = None
-        self.state = self.start_state
+        self.prev_location = None
+        self.location = self.start_location
+        self.state = self.cell_states[self.location]
         self.total_reward = 0
         self.episode_running = True
-        self.agent.episode_starting(self.task_id, self.state)
+        self.agent.episode_starting(self.task_id, self.location, self.state)
 
     def reward(self, action):
-        return random.normalvariate(self.cell_means[self.state], self.reward_stdev)
+        return random.normalvariate(self.cell_means[self.location], self.reward_stdev)
 
     def transition(self, action):
         """
         Transition function given an action. The default grid world uses a deterministic
         transition that simply moves the agent where it wants to go, unless it hits a wall.
         """
-        self.prev_state = self.state
+        self.prev_location = self.location
         if action == UP:
-            self.state = (self.state[0], max(0, self.state[1]-1))
+            self.location = (self.location[0], max(0, self.location[1]-1))
         elif action == DOWN:
-            self.state = (self.state[0], min(self.height - 1, self.state[1] + 1))
+            self.location = (self.location[0], min(self.height - 1, self.location[1] + 1))
         elif action == LEFT:
-            self.state = (max(0, self.state[0] - 1), self.state[1])
+            self.location = (max(0, self.location[0] - 1), self.location[1])
         elif action == RIGHT:
-            self.state = (min(self.width-1, self.state[0] + 1), self.state[1])
+            self.location = (min(self.width-1, self.location[0] + 1), self.location[1])
+        self.state = self.cell_states[self.location]
         
     def step(self):
         assert(self.episode_running)
@@ -145,8 +151,8 @@ class GridWorld(object):
         r = self.reward(action)
         self.total_reward += r
         self.agent.observe_reward(self.task_id, r)
-        self.agent.set_state(self.task_id, self.state)
-        if self.state == self.goal:
+        self.agent.set_state(self.task_id, self.location, self.state)
+        if self.location == self.goal:
             self.agent.episode_over(self.task_id)
             self.episode_running = False
 
@@ -189,7 +195,7 @@ class GridWorld(object):
                     reward_line += reward_format.format(cell_values[x,y]).center(cell_width) + '|'
                 else:
                     reward_line += '<' + reward_format.format(cell_values[x,y]).center(cell_width-2) + '>|'
-                if self.agent is not None and self.state == (x,y):
+                if self.agent is not None and self.location == (x,y):
                     state_text += 'X'
                 state_line += state_text.center(cell_width) + '|'
                 color_line += 'C={0}'.format(self.cell_colors[x,y]).center(cell_width) + '|'

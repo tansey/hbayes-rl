@@ -22,18 +22,18 @@ class QAgent(Agent):
         self.visits = [np.zeros((width, height)) for domain in range(num_domains)]
         self.q_visits = [np.zeros((width, height, NUM_ACTIONS)) for domain in range(num_domains)]
         self.update = [False for domain in range(num_domains)]
-        self.prev_state = [None for domain in range(num_domains)]
+        self.prev_location = [None for domain in range(num_domains)]
         self.prev_action = [None for domain in range(num_domains)]
         self.prev_reward = [None for domain in range(num_domains)]
         
-    def episode_starting(self, idx, state):
+    def episode_starting(self, idx, location, state):
         self.update[idx] = False
-        self.prev_state[idx] = None
-        super(QAgent, self).episode_starting(idx, state)
+        self.prev_location[idx] = None
+        super(QAgent, self).episode_starting(idx, location, state)
 
     def episode_over(self, idx):
         if self.update[idx]:
-            qidx = (self.prev_state[idx][0], self.prev_state[idx][1], self.prev_action[idx])
+            qidx = (self.prev_location[idx][0], self.prev_location[idx][1], self.prev_action[idx])
             self.q[idx][qidx] += self.alpha * (self.prev_reward[idx] - self.q[idx][qidx])
         super(QAgent, self).episode_over(idx)
 
@@ -47,18 +47,18 @@ class QAgent(Agent):
         else:
             (action, val) = self.greedy(idx)
         self.prev_action[idx] = action
-        self.q_visits[idx][self.state[idx][0],self.state[idx][1],action] += 1
+        self.q_visits[idx][self.location[idx][0],self.location[idx][1],action] += 1
         return action+1
 
-    def greedy(self, idx, state=None, debug=False):
+    def greedy(self, idx, location=None, debug=False):
         maxi = []
         maxv = 0
-        if state is None:
-        	state = self.state[idx]
+        if location is None:
+        	location = self.location[idx]
         for i in range(NUM_ACTIONS):
-            action_val = self.q[idx][state[0],state[1],i]
+            action_val = self.q[idx][location[0],location[1],i]
             if debug:
-                print '\tQ[{0},{1}] = {2}'.format(state, ACTION_NAMES[i], action_val)
+                print '\tQ[{0},{1}] = {2}'.format(location, ACTION_NAMES[i], action_val)
             if len(maxi) == 0 or action_val > maxv:
                 maxi = [i]
                 maxv = action_val
@@ -73,13 +73,13 @@ class QAgent(Agent):
         return (maxi,maxv)
 
     def update_q(self, idx):
-        prev_qidx = (self.prev_state[idx][0],self.prev_state[idx][1],self.prev_action[idx])
+        prev_qidx = (self.prev_location[idx][0],self.prev_location[idx][1],self.prev_action[idx])
         self.q[idx][prev_qidx] += self.alpha * (self.prev_reward[idx] + self.gamma * self.greedy(idx)[1] - self.q[idx][prev_qidx])
 
-    def set_state(self, idx, state):
-        self.prev_state[idx] = self.state[idx]
-        super(QAgent, self).set_state(idx, state)
-        self.visits[idx][state] += 1
+    def set_state(self, idx, location, state):
+        self.prev_location[idx] = self.location[idx]
+        super(QAgent, self).set_state(idx, location, state)
+        self.visits[idx][location] += 1
 
     def observe_reward(self, idx, r):
         self.prev_reward[idx] = r
@@ -87,8 +87,8 @@ class QAgent(Agent):
 
     def get_policy(self, idx):
         domain = self.domains[idx]
-        pi = np.array([[self.greedy(idx,state=(x,y))[0]+1 for y in range(domain.height)] for x in range(domain.width)])
-        values = np.array([[self.greedy(idx,state=(x,y))[1] for y in range(domain.height)] for x in range(domain.width)])
+        pi = np.array([[self.greedy(idx,location=(x,y))[0]+1 for y in range(domain.height)] for x in range(domain.width)])
+        values = np.array([[self.greedy(idx,location=(x,y))[1] for y in range(domain.height)] for x in range(domain.width)])
         return (pi, values)
 
 if __name__ == "__main__":
