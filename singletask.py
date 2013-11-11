@@ -1,3 +1,6 @@
+"""
+NOTE: This file is currently FUBAR. Do not look at this for anything meaningful!
+"""
 import numpy as np
 from gridworld import *
 from mdp_solver import *
@@ -93,21 +96,26 @@ class LinearGaussianRewardModel(object):
         return -0.5 * (sum_rewards + prior_term) # log prob
 
     def predict_value(self, state):
-        return np.dot(self.bayes_estimates[0], state)
+        return np.dot(self.bayes_estimates[0], state)            
 
 
 class SingleTaskBayesianAgent(Agent):
     """
     A Bayesian RL agent that views all the domains as drawn from the same distribution.
     """
-    def __init__(self, width, height, num_colors, num_domains, name=None):
+    def __init__(self, width, height, num_colors, num_domains, name=None, steps_per_policy=1):
         super(SingleTaskBayesianAgent, self).__init__(width, height, num_colors, num_domains, name)
         self.model = LinearGaussianRewardModel(num_colors)
         self.value_function = np.array((num_domains, width, height))
         self.state_vector = np.array((num_domains, width, height, num_colors * NUM_RELATIVE_CELLS))
+        self.steps_per_policy = steps_per_policy
+        self.steps_since_update = 0
 
     def episode_starting(self, idx, state):
         super(SingleTaskBayesianAgent, self).episode_starting(idx, state)
+        self.steps_since_update = 0
+        mdp = self.sample_mdp()
+
 
     def episode_over(self, idx):
         super(SingleTaskBayesianAgent, self).episode_over(idx)
@@ -121,3 +129,7 @@ class SingleTaskBayesianAgent(Agent):
     def observe_reward(self, idx, r):
         super(SingleTaskBayesianAgent, self).observe_reward(idx, r)
         self.model.add_reward_observation(Observation(idx, ))
+
+    def sample_mdp(self):
+        # TODO: sample a MAP MDP
+        return np.zeros(self.num_colors * NUM_RELATIVE_CELLS)
