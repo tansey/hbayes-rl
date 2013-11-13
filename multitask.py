@@ -20,6 +20,9 @@ class MdpClass(object):
         return np.random.multivariate_normal(self.weights_mean, self.weights_cov)
 
     def sample_posterior(self, states, rewards):
+        """
+        We have the product of two Gaussians, so we can derive a closed form update for the posterior.
+        """
         y = self.inv_weights_cov + np.dot(np.transpose(states), states)
         post_cov = np.linalg.inv(y)
         post_mean = np.dot(np.linalg.inv(y), np.dot(self.inv_weights_cov, self.weights_mean) + np.dot(np.transpose(states), rewards))
