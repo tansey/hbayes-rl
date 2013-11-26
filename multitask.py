@@ -3,6 +3,7 @@ from gridworld import *
 from mdp_solver import *
 import random
 from scipy.stats import chi2
+from mdp_solver import value_iteration_to_policy
 
 class MdpClass(object):
     def __init__(self, class_id, weights_mean, weights_cov):
@@ -89,7 +90,6 @@ class LinearGaussianRewardModel(object):
     def add_observation(self, state, reward):
         self.states.append(state)
         self.rewards.append(reward)
-        self.update_beliefs()
 
     def update_beliefs(self):
         """
@@ -161,36 +161,72 @@ class MultiTaskBayesianAgent(Agent):
     """
     A Bayesian RL agent that infers a hierarchy of MDP distributions, with a top-level
     class distribution which parameterizes each bottom-level MDP distribution.
+
+    TODO: Currently the agent assumes all MDPs are observed sequentially. Extending the
+    algorithm to handle multiple, simultaneous MDPs may require non-trivial changes.
     """
-    def __init__(self, width, height, num_colors, num_domains, name=None, steps_per_policy=1):
-        super(SingleTaskBayesianAgent, self).__init__(width, height, num_colors, num_domains, name)
-        self.model = LinearGaussianRewardModel(num_colors)
-        self.value_function = np.array((num_domains, width, height))
-        self.state_vector = np.array((num_domains, width, height, num_colors * NUM_RELATIVE_CELLS))
+    def __init__(self, width, height, num_colors, num_domains, reward_stdev, name=None, steps_per_policy=1, num_auxillaries=2, goal_known=True):
+        super(MultiTaskBayesianAgent, self).__init__(width, height, num_colors, num_domains, name)
+        self.reward_stdev = reward_stdev
         self.steps_per_policy = steps_per_policy
+        self.num_auxillaries = num_auxillaries
+        self.goal_known = goal_known
+        self.state_size = num_colors * NUM_RELATIVE_CELLS
+        self.auxillary = NormalInverseWishartDistribution(np.zeros(self.state_size), 1., self.state_size+1, np.identity(self.state_size))
+        self.classes = []
+        self.assignments = []
+        self.model = LinearGaussianRewardModel(num_colors, self.reward_stdev, self.classes, self.assignments, self.auxillary, m=num_auxillaries)
+        self.cur_mdp = 0
         self.steps_since_update = 0
 
     def episode_starting(self, idx, state):
-        super(SingleTaskBayesianAgent, self).episode_starting(idx, state)
-        self.steps_since_update = 0
-        mdp = self.sample_mdp()
+        super(MultiTaskBayesianAgent, self).episode_starting(idx, state)
+        if idx is not self.cur_mdp:
+            self.cur_mdp = idx
+            self.steps_since_update = 0
+            self.update_beliefs()
 
     def episode_over(self, idx):
-        super(SingleTaskBayesianAgent, self).episode_over(idx)
+        assert(idx == self.cur_mdp)
+        super(MultiTaskBayesianAgent, self).episode_over(idx)
+        # TODO: Handle unknown goal locations
 
     def get_action(self, idx):
-        pass
+        assert(idx == self.cur_mdp)
+        if self.steps_since_update >= self.steps_per_policy:
+            self.update_policy()
+        self.steps_since_update += 1
+        return self.policy[self.state[idx]]
 
     def set_state(self, idx, state):
-        super(SingleTaskBayesianAgent, self).set_state(idx, state)
+        assert(idx == self.cur_mdp)
+        super(MultiTaskBayesianAgent, self).set_state(idx, state)
 
     def observe_reward(self, idx, r):
-        super(SingleTaskBayesianAgent, self).observe_reward(idx, r)
-        self.model.add_reward_observation(Observation(idx, ))
+        assert(idx == self.cur_mdp)
+        super(MultiTaskBayesianAgent, self).observe_reward(idx, r)
+        self.model.add_observation(self.state[idx], r)
 
-    def sample_mdp(self):
-        # TODO: sample a MAP MDP
-        return np.zeros(self.num_colors * NUM_RELATIVE_CELLS)
+    def update_beliefs(self):
+        """
+        Implements Algorithm 2 from Wilson et al. to update the beliefs
+        over all MDPs.
+
+        Note that the beliefs of past MDPs are only updated between episodes,
+        for efficiency. See section 4.4 for details on the efficiency issue.
+        """
+        pass
+
+    def update_policy(self):
+        """
+        Algorithm 1, Line 5 from Wilson et al.
+        """
+        self.model.update_beliefs()
+        weights = self.model.weights
+        cell_values = np.zeros((self.width, self.height))
+        # TODO: Calculate cell values from weight vector
+        # TODO: Handle unknown goal locations by enabling passing a belief distribution over goal locations
+        self.policy = value_iteration_to_policy(self.width, self.height, self.domains[self.cur_mdp].goal, cell_values)
 
 if __name__ == "__main__":
     TRUE_CLASS = 0
@@ -204,11 +240,11 @@ if __name__ == "__main__":
     true_params = [niw_true.sample() for _ in range(NUM_DISTRIBUTIONS)]
     classes = [MdpClass(i, mean, cov) for i,(mean,cov) in enumerate(true_params)]
     assignments = [1. for _ in classes]
-    auxillary = NormalInverseWishartDistribution(np.zeros(SIZE), 1., SIZE+1, np.identity(SIZE)+5)
+    auxillary = NormalInverseWishartDistribution(np.zeros(SIZE), 1., SIZE+1, np.identity(SIZE))
 
     candidate_params = [auxillary.sample() for _ in range(NUM_DISTRIBUTIONS)]
     candidate_classes = [MdpClass(i, mean, cov) for i,(mean,cov) in enumerate(candidate_params)]
-    model = LinearGaussianRewardModel(COLORS, RSTDEV, [], [], auxillary)
+    model = LinearGaussianRewardModel(COLORS, RSTDEV, classes, assignments, auxillary)
 
     weights = classes[TRUE_CLASS].sample()
 
@@ -220,4 +256,5 @@ if __name__ == "__main__":
             q_sample[row * COLORS + random.randrange(COLORS)] = 1
         r_sample = np.random.normal(loc=np.dot(weights, q_sample), scale=RSTDEV)
         model.add_observation(q_sample, r_sample)
+        model.update_beliefs()
         print 'Samples: {0} Class belief: {1}'.format(s+1, model.map_class.class_id)
