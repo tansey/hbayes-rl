@@ -56,7 +56,7 @@ class LinearGaussianRewardModel(object):
     """
     A model of the rewards for experiment 1 in the Wilson et al. paper. See section 4.4 for implementation details.
     """
-    def __init__(self, num_colors, reward_stdev, classes, assignments, auxillary_distribution, alpha=1., m=2, burn_in=100, mcmc_samples=500, thin=10):
+    def __init__(self, num_colors, reward_stdev, classes, assignments, auxillary_distribution, alpha=0.5, m=2, burn_in=100, mcmc_samples=500, thin=10):
         self.weights_size = num_colors * NUM_RELATIVE_CELLS
         self.reward_stdev = reward_stdev
         self.classes = classes
@@ -69,10 +69,22 @@ class LinearGaussianRewardModel(object):
         self.mcmc_samples = mcmc_samples
         self.thin = thin
         assert(len(classes) == len(assignments))
-        self.map_class = random.choice(classes) # TODO: Weight by prior likelihood?
-        self.weights = self.map_class.sample()
         self.states = []
         self.rewards = []
+        # Create auxillary classes in case this MDP is from an unseen distribution
+        # Note: This has to be done once for the whole environment in order to be compatible
+        # with the practical hack of update_beliefs. Since we don't reassign anything other than
+        # the current MDP, if we add a new auxillary to the list of classes, we'll just get
+        # 0 assignments on the next step and thus 0 probability. Instead, we have to keep it
+        # as alpha/m probability at each step so it always can be selected. This seems unfortunate
+        # since it means the agent cannot adapt its auxillary distributions much. The best
+        # we can do is to get rid of the ones that were not MAP classes last step and keep
+        # one only if it was the MAP class.
+        self.auxillaries = [self.sample_auxillary(len(self.classes) + i) for i in range(self.m)]
+        c = self.proportional_selection(self.assignments + [self.alpha / self.m for _ in self.auxillaries])
+        self.map_class = (self.classes + self.auxillaries)[c]
+        self.weights = self.map_class.sample()
+        
 
     def add_observation(self, state, reward):
         self.states.append(state)
@@ -80,27 +92,35 @@ class LinearGaussianRewardModel(object):
         self.update_beliefs()
 
     def update_beliefs(self):
+        """
+        Implements the efficient approximation of Algorithm 2 from Wilson et al.
+        described in section 4.4. to update the model parameters during an episode.
+        """
         states = np.array(self.states)
         rewards = np.array(self.rewards)
-        samples = np.zeros(len(self.classes)+1)
-        c = random.randrange(len(self.classes))
-        mdp_class = self.classes[c]
+        samples = np.zeros(len(self.classes)+self.m)
+        c = self.proportional_selection(self.assignments + [self.alpha / self.m for _ in self.auxillaries])
+        mdp_class = (self.classes + self.auxillaries)[c]
         w = mdp_class.sample_posterior(states, rewards)
         for i in range(self.mcmc_samples):
             mdp_class = self.sample_assignment(w)
             w = mdp_class.sample_posterior(states, rewards)
             if i >= self.burn_in and i % self.thin == 0:
-                # TODO: Do we really just want the chain of assignments?
-                # Wouldn't the Bayes estimate here be to average w?
                 samples[mdp_class.class_id] += 1
-                assignment_probs = [self.classes[i].likelihood(w) for i in range(len(self.classes))]
-        print 'Assignment Distribution: {0}'.format(samples)
+        print 'Assignment Distribution: {0} Original: {1}'.format(samples, c)
         # MAP calculations
         map_c = np.argmax(samples)
         if map_c >= len(self.classes):
-            self.map_class = self.sample_auxillary()
+            # We are keeping this auxillary class
+            new_class = self.auxillaries[map_c - len(self.classes)]
+            new_class.class_id = len(self.classes)
+            self.map_class = new_class
+            # None of the other auxillary classes were good enough -- resample them
+            self.auxillaries = [new_class] + [self.sample_auxillary(len(self.classes) + i + 1) for i in range(self.m - 1)]
         else:
             self.map_class = self.classes[map_c]
+            # None of the auxillary classes were good enough -- resample them
+            self.auxillaries = [self.sample_auxillary(len(self.classes) + i) for i in range(self.m)]
         self.weights = self.sample_weights(states, rewards)
 
     def sample_assignment(self, weights):
@@ -111,21 +131,24 @@ class LinearGaussianRewardModel(object):
         # Calculate likelihood of assigning to a known class
         assignment_probs = [self.assignments[i] / (self.total_mpds - 1. + self.alpha) * self.classes[i].likelihood(weights) for i in range(len(self.classes))]
         # Calculate likelihood of assigning to a new, unknown class with the default prior
-        auxillaries = []
-        for i in range(self.m):
-            aux = self.sample_auxillary(len(self.classes) + i)
+        for i,aux in enumerate(self.auxillaries):
             assignment_probs.append(self.alpha / float(self.m) / (self.total_mpds - 1. + self.alpha) * aux.likelihood(weights))
             classes.append(aux) # add auxillary classes to the list of options
 
         # Sample an assignment proportional to the likelihoods
-        partition = sum(assignment_probs)
-        assignment_probs = [x / partition for x in assignment_probs]
+        return classes[self.proportional_selection(assignment_probs)]
+
+    def proportional_selection(self, proportions):
+        partition = sum(proportions)
+        if partition == 0:
+            print 'ERROR: Partition == 0. Proportions: {0}'.format(proportions)
+        proportions = [x / partition for x in proportions]
         u = random.random()
         cur = 0.
-        for i,prob in enumerate(assignment_probs):
+        for i,prob in enumerate(proportions):
             cur += prob
             if u <= cur:
-                return classes[i] 
+                return i
 
     def sample_auxillary(self, class_id):
         (mean, cov) = self.auxillary_distribution.sample()
@@ -151,7 +174,6 @@ class MultiTaskBayesianAgent(Agent):
         super(SingleTaskBayesianAgent, self).episode_starting(idx, state)
         self.steps_since_update = 0
         mdp = self.sample_mdp()
-
 
     def episode_over(self, idx):
         super(SingleTaskBayesianAgent, self).episode_over(idx)
@@ -182,10 +204,11 @@ if __name__ == "__main__":
     true_params = [niw_true.sample() for _ in range(NUM_DISTRIBUTIONS)]
     classes = [MdpClass(i, mean, cov) for i,(mean,cov) in enumerate(true_params)]
     assignments = [1. for _ in classes]
-    #default_class = MdpClass(-1, np.zeros(COLORS * NUM_RELATIVE_CELLS), np.identity(COLORS * NUM_RELATIVE_CELLS))
-    auxillary = NormalInverseWishartDistribution(np.zeros(SIZE), 1., SIZE+1, np.identity(SIZE)*5)
+    auxillary = NormalInverseWishartDistribution(np.zeros(SIZE), 1., SIZE+1, np.identity(SIZE)+5)
 
-    model = LinearGaussianRewardModel(COLORS, RSTDEV, classes, assignments, auxillary)
+    candidate_params = [auxillary.sample() for _ in range(NUM_DISTRIBUTIONS)]
+    candidate_classes = [MdpClass(i, mean, cov) for i,(mean,cov) in enumerate(candidate_params)]
+    model = LinearGaussianRewardModel(COLORS, RSTDEV, [], [], auxillary)
 
     weights = classes[TRUE_CLASS].sample()
 
