@@ -53,6 +53,29 @@ class NormalInverseWishartDistribution(object):
                     foo[i,j]  = np.random.normal(0,1)
         return np.dot(chol, np.dot(foo, np.dot(foo.T, chol.T)))
 
+    def sample_posterior(self, data):
+        n = len(data)
+        mean_data = np.mean(data, axis=0)
+        sum_squares = np.sum([np.array(np.matrix(x - mean_data).T * np.matrix(x - mean_data)) for x in data], axis=0)
+        assert(sum_squares.shape == (self.mu.shape[0], self.mu.shape[0]))
+        mu_n = (self.lmbda * self.mu + n * mean_data) / (self.lmbda + n)
+        lmbda_n = self.lmbda + n
+        nu_n = self.nu + n
+        psi_n = self.psi + sum_squares + self.lmbda * n / (self.lmbda + n) * np.array(np.matrix(mean_data - self.mu).T * np.matrix(mean_data - self.mu))
+        return NormalInverseWishartDistribution(mu_n, lmbda_n, nu_n, psi_n).sample()
+
+def proportional_selection(self, proportions):
+    partition = sum(proportions)
+    if partition == 0:
+        print 'ERROR: Partition == 0. Proportions: {0}'.format(proportions)
+    proportions = [x / partition for x in proportions]
+    u = random.random()
+    cur = 0.
+    for i,prob in enumerate(proportions):
+        cur += prob
+        if u <= cur:
+            return i
+
 class LinearGaussianRewardModel(object):
     """
     A model of the rewards for experiment 1 in the Wilson et al. paper. See section 4.4 for implementation details.
@@ -82,7 +105,7 @@ class LinearGaussianRewardModel(object):
         # we can do is to get rid of the ones that were not MAP classes last step and keep
         # one only if it was the MAP class.
         self.auxillaries = [self.sample_auxillary(len(self.classes) + i) for i in range(self.m)]
-        c = self.proportional_selection(self.assignments + [self.alpha / self.m for _ in self.auxillaries])
+        c = proportional_selection(self.assignments + [self.alpha / self.m for _ in self.auxillaries])
         self.map_class = (self.classes + self.auxillaries)[c]
         self.weights = self.map_class.sample()
         
@@ -99,7 +122,7 @@ class LinearGaussianRewardModel(object):
         states = np.array(self.states)
         rewards = np.array(self.rewards)
         samples = np.zeros(len(self.classes)+self.m)
-        c = self.proportional_selection(self.assignments + [self.alpha / self.m for _ in self.auxillaries])
+        c = proportional_selection(self.assignments + [self.alpha / self.m for _ in self.auxillaries])
         mdp_class = (self.classes + self.auxillaries)[c]
         w = mdp_class.sample_posterior(states, rewards)
         for i in range(self.mcmc_samples):
@@ -134,21 +157,8 @@ class LinearGaussianRewardModel(object):
         for i,aux in enumerate(self.auxillaries):
             assignment_probs.append(self.alpha / float(self.m) / (self.total_mpds - 1. + self.alpha) * aux.likelihood(weights))
             classes.append(aux) # add auxillary classes to the list of options
-
         # Sample an assignment proportional to the likelihoods
-        return classes[self.proportional_selection(assignment_probs)]
-
-    def proportional_selection(self, proportions):
-        partition = sum(proportions)
-        if partition == 0:
-            print 'ERROR: Partition == 0. Proportions: {0}'.format(proportions)
-        proportions = [x / partition for x in proportions]
-        u = random.random()
-        cur = 0.
-        for i,prob in enumerate(proportions):
-            cur += prob
-            if u <= cur:
-                return i
+        return classes[proportional_selection(assignment_probs)]
 
     def sample_auxillary(self, class_id):
         (mean, cov) = self.auxillary_distribution.sample()
@@ -156,6 +166,7 @@ class LinearGaussianRewardModel(object):
 
     def sample_weights(self, states, rewards):
         self.weights = self.map_class.sample_posterior(states, rewards)
+
 
 class MultiTaskBayesianAgent(Agent):
     """
@@ -165,19 +176,24 @@ class MultiTaskBayesianAgent(Agent):
     TODO: Currently the agent assumes all MDPs are observed sequentially. Extending the
     algorithm to handle multiple, simultaneous MDPs may require non-trivial changes.
     """
-    def __init__(self, width, height, num_colors, num_domains, reward_stdev, name=None, steps_per_policy=1, num_auxillaries=2, goal_known=True):
+    def __init__(self, width, height, num_colors, num_domains, reward_stdev, name=None, steps_per_policy=1, num_auxillaries=2, goal_known=True, burn_in=100, mcmc_samples=500, thin=10):
         super(MultiTaskBayesianAgent, self).__init__(width, height, num_colors, num_domains, name)
         self.reward_stdev = reward_stdev
         self.steps_per_policy = steps_per_policy
         self.num_auxillaries = num_auxillaries
         self.goal_known = goal_known
+        self.burn_in = burn_in
+        self.mcmc_samples = mcmc_samples
+        self.thin = thin
         self.state_size = num_colors * NUM_RELATIVE_CELLS
-        self.auxillary = NormalInverseWishartDistribution(np.zeros(self.state_size), 1., self.state_size+1, np.identity(self.state_size))
+        self.auxillary_distribution = NormalInverseWishartDistribution(np.zeros(self.state_size), 1., self.state_size+1, np.identity(self.state_size))
         self.classes = []
         self.assignments = []
-        self.model = LinearGaussianRewardModel(num_colors, self.reward_stdev, self.classes, self.assignments, self.auxillary, m=num_auxillaries)
+        self.model = LinearGaussianRewardModel(num_colors, self.reward_stdev, self.classes, self.assignments, self.auxillary_distribution, m=num_auxillaries)
         self.cur_mdp = 0
         self.steps_since_update = 0
+        self.states = [[] for _ in range(num_domains)]
+        self.rewards = [[] for _ in range(num_domains)]
 
     def episode_starting(self, idx, state):
         super(MultiTaskBayesianAgent, self).episode_starting(idx, state)
@@ -185,6 +201,7 @@ class MultiTaskBayesianAgent(Agent):
             self.cur_mdp = idx
             self.steps_since_update = 0
             self.update_beliefs()
+        self.prev_reward = None
 
     def episode_over(self, idx):
         assert(idx == self.cur_mdp)
@@ -201,21 +218,89 @@ class MultiTaskBayesianAgent(Agent):
     def set_state(self, idx, state):
         assert(idx == self.cur_mdp)
         super(MultiTaskBayesianAgent, self).set_state(idx, state)
+        if prev_reward is not None:
+            self.model.add_observation(state, prev_reward)
+            self.states[idx].append(state)
 
     def observe_reward(self, idx, r):
         assert(idx == self.cur_mdp)
         super(MultiTaskBayesianAgent, self).observe_reward(idx, r)
-        self.model.add_observation(self.state[idx], r)
+        self.prev_reward = r
+        self.rewards[idx].append(r)
 
     def update_beliefs(self):
         """
         Implements Algorithm 2 from Wilson et al. to update the beliefs
         over all MDPs.
 
-        Note that the beliefs of past MDPs are only updated between episodes,
+        Note that the beliefs of past MDPs are only updated between MDPs,
         for efficiency. See section 4.4 for details on the efficiency issue.
         """
-        pass
+        states = np.array(self.states)
+        rewards = np.array(self.rewards)
+        self.classes = [self.sample_auxillary(k) for k in range(self.num_auxillaries)]
+        self.assignments = [random.randrange(len(self.classes)) for _ in range(self.cur_mdp+1)] # initial assignments
+        assignment_counts = [0] * len(self.classes)
+        for c in self.assignments:
+            assignment_counts[c] += 1
+        for i in range(self.mcmc_samples):
+            aux_boundary = len(self.classes)
+            # Add auxillary classes
+            self.classes += [self.sample_auxillary(k) for k in range(self.num_auxillaries)]
+            assignment_counts += [self.alpha / float(self.num_auxillaries)] * self.num_auxillaries
+            # Sample class assignments
+            for j,a in enumerate([x for x in self.assignments]):
+                # Remove the current mdp from the counts
+                assignment_counts[a] -= 1
+                # Calculate likelihood of assigning to each class
+                assignment_probs = [assignment_counts[i] / (self.total_mpds - 1. + self.alpha) * classes[i].likelihood(self.weights[j]) for i in range(len(classes))]
+                # Sample an assignment proportional to the likelihoods
+                chosen = classes[self.proportional_selection(assignment_probs)]
+                # If this was an auxillary class, update its proportionality to no longer be the concentration parameter.
+                if chosen.class_id >= aux_boundary:
+                    # swap with the last aux class
+                    tmp = self.classes[aux_boundary]
+                    self.classes[aux_boundary] = chosen
+                    self.classes[chosen.class_id] = tmp
+                    tmp.class_id = chosen.class_id
+                    chosen.class_id = aux_boundary
+                    # move the aux boundary
+                    aux_boundary += 1
+                    # remove the alpha proportionality, since we will now be adding 1 member to it
+                    assignment_counts[chosen.class_id] = 0
+                self.assignments[j] = chosen.class_id
+                assignment_counts[chosen.class_id] += 1
+            # Remove all classes with zero MDPs, doing some bookkeeping to adjust class IDs.
+            updated_classes = []
+            updated_assignments = [None for _ in self.assignments]
+            updated_counts = []
+            next_id = 0
+            for i in range(len(self.classes)):
+                if i < aux_boundary and assignment_counts[i] > 0:
+                    for j,a in enumerate(self.assignments):
+                        if a == i:
+                            updated_assignments[j] = next_id
+                    updated_counts.append(assignment_counts[i])
+                    self.classes[i].class_id = next_id
+                    updated_classes.append(self.classes[i])
+                    next_id += 1
+            self.classes = updated_classes
+            self.assignments = updated_assignments
+            self.assignment_counts = updated_counts
+            # Sample weights
+            self.weights = [self.classes[a].sample_posterior(states[i], rewards[i]) for i,a in enumerate(self.assignments)]
+            # Sample class parameters
+            weight_clusters = [[]] * len(self.classes)
+            for widx,a in enumerate(self.assignments):
+                weight_clusters[a].append(self.weights[widx])
+            for c,w in enumerate(weight_clusters):
+                (mu,sigma) = self.auxillary_distribution.sample_posterior(w)
+                self.classes[c] = MdpClass(c, mu, sigma)
+            # TODO: Record samples
+            if i >= self.burn_in and i % self.thin == 0:
+                pass
+
+
 
     def update_policy(self):
         """
@@ -223,10 +308,18 @@ class MultiTaskBayesianAgent(Agent):
         """
         self.model.update_beliefs()
         weights = self.model.weights
+        # Calculate the mean value of every cell, given the model weights
         cell_values = np.zeros((self.width, self.height))
-        # TODO: Calculate cell values from weight vector
+        for x in range(self.width):
+            for y in range(self.height):
+                cell_values[x,y] = np.dot(weights, self.domains[self.cur_mdp].cell_states[x,y])
         # TODO: Handle unknown goal locations by enabling passing a belief distribution over goal locations
         self.policy = value_iteration_to_policy(self.width, self.height, self.domains[self.cur_mdp].goal, cell_values)
+
+
+    def sample_auxillary(self, class_id):
+        (mean, cov) = self.auxillary_distribution.sample()
+        return MdpClass(class_id, mean, cov)
 
 if __name__ == "__main__":
     TRUE_CLASS = 0

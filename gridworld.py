@@ -1,7 +1,7 @@
 """
 An implementation of the grid world experiment from:
 
-Wilson, Aaron, et al. "Multi-Task Reinforcement Learning: A 
+Wilson et al. "Multi-Task Reinforcement Learning: A 
 Hierarchical Bayesian Approach." Proceedings of the 24th International
 Conference on Machine Learning (ICML'07). ACM, 2007.
 
