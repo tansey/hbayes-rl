@@ -4,22 +4,19 @@ A script to replicate experiment 1 from the Wilson et. al. (ICML'07) paper.
 import argparse
 from gridworld import *
 from qlearning import QAgent
+from multitask import MultiTaskBayesianAgent, MdpClass, NormalInverseWishartDistribution
 import random
 import matplotlib.pyplot as plt
 import numpy as np
 
-class MdpClass(object):
-    def __init__(self, class_id, args):
-        self.class_id = class_id
-        self.weights_mean = (np.random.rand(args.colors * NUM_RELATIVE_CELLS)+1) * -2
-        self.weights_cov = np.random.rand(args.colors * NUM_RELATIVE_CELLS, args.colors * NUM_RELATIVE_CELLS) * 2. - 1.
-
 def get_agents(args):
     agents = []
-    for mpds in args.trainsize:
+    for mdps in args.trainsize:
         if args.agent == 'qlearning':
-            agents.append(QAgent(args.gridwidth, args.gridheight, args.colors, mpds+args.testsize, 'Q ({0} MPDs)'.format(mpds),\
+            agents.append(QAgent(args.gridwidth, args.gridheight, args.colors, mdps+args.testsize, 'Q ({0} MPDs)'.format(mdps),\
                             args.epsilon, args.alpha, args.gamma))
+        elif args.agent == 'multibayes':
+            agents.append(MultiTaskBayesianAgent(args.gridwidth, args.gridheight, args.colors, mdps+args.testsize, args.rstdev, name='MTRL ({0} MDPs)'.format(mdps)))
         else:
             raise Exception('Unsupported agent type: ' + args.agent)
     return agents
@@ -51,8 +48,12 @@ if __name__ == "__main__":
     parser.add_argument('--gamma', type=float, default=0.1, help='The discount factor for the Q-Learning agent. range: [0,1]')
     args = parser.parse_args()
 
+    SIZE = args.colors * NUM_RELATIVE_CELLS
+
     agents = get_agents(args)
-    classes = [MdpClass(i, args) for i in range(args.classes)]
+    niw_true = NormalInverseWishartDistribution(np.zeros(SIZE) - 3., 1., SIZE+1, np.identity(SIZE))
+    true_params = [niw_true.sample() for _ in range(args.classes)]
+    classes = [MdpClass(i, mean, cov) for i,(mean,cov) in enumerate(true_params)]
     test_domains = [create_domain(d, args, classes) for d in range(args.testsize)]
     train_domains = [create_domain(d, args, classes) for d in range(args.testsize, args.testsize+max(args.trainsize))]
     agent_rewards = []
