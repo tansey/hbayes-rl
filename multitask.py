@@ -285,6 +285,7 @@ class MultiTaskBayesianAgent(Agent):
         if idx is not self.cur_mdp:
             self.update_beliefs()
             self.cur_mdp = idx
+            self.update_policy()
             self.steps_since_update = 0
         self.prev_reward = None
 
@@ -334,6 +335,7 @@ class MultiTaskBayesianAgent(Agent):
         for c in self.assignments:
             self.assignment_counts[c] += 1
         max_likelihood = None
+        samples = []
         for iteration in range(self.mcmc_samples):
             log_likelihood = 0
             aux_boundary = len(self.classes)
@@ -383,9 +385,9 @@ class MultiTaskBayesianAgent(Agent):
             next_id = 0
             for j in range(len(self.classes)):
                 if j < aux_boundary and self.assignment_counts[j] > 0:
-                    for j,a in enumerate(self.assignments):
+                    for k,a in enumerate(self.assignments):
                         if a == j:
-                            updated_assignments[j] = next_id
+                            updated_assignments[k] = next_id
                     updated_counts.append(self.assignment_counts[j])
                     self.classes[j].class_id = next_id
                     updated_classes.append(self.classes[j])
@@ -393,11 +395,6 @@ class MultiTaskBayesianAgent(Agent):
             self.classes = updated_classes
             self.assignments = updated_assignments
             self.assignment_counts = updated_counts
-            print 'Cur MDP: {0}'.format(self.cur_mdp)
-            print 'Classes: {0}'.format(len(self.classes))
-            print 'Assignments: {0}'.format(self.assignments)
-            print 'Counts: {0}'.format(self.assignment_counts)
-            
             # Sample weights
             class_posteriors = [self.classes[a].posterior(states[j], rewards[j]) for j,a in enumerate(self.assignments)]
             self.weights = [c.sample() for c in class_posteriors]
@@ -418,7 +415,6 @@ class MultiTaskBayesianAgent(Agent):
                 log_likelihood += cluster_posterior.log_likelihood(mu,sigma)
             # Record samples
             if iteration >= self.burn_in and iteration % self.thin == 0:
-                raise Exception()
                 # TODO: import deepcopy for speed (meh, it's all sooo slow anyway)
                 classes_copy = [x for x in self.classes]
                 assignments_copy = [x for x in self.assignments]
@@ -433,6 +429,7 @@ class MultiTaskBayesianAgent(Agent):
         self.assignments = map_sample[1]
         self.assignment_counts = map_sample[2]
         self.weights = map_sample[3]
+        self.model = LinearGaussianRewardModel(self.colors, self.reward_stdev, self.classes, self.assignment_counts, self.auxillary_distribution, alpha=self.alpha, m=self.num_auxillaries)
 
     def update_policy(self):
         """
