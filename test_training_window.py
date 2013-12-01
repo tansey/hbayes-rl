@@ -41,7 +41,7 @@ if __name__ == "__main__":
     parser.add_argument('--gridwidth', type=int, default=15, help='The width of the grid world.')
     parser.add_argument('--gridheight', type=int, default=15, help='The height of the grid world.')
     parser.add_argument('--rstdev', type=float, default=0.1, help='The (known) standard deviation of the reward function.')
-    parser.add_argument('--maxmoves', type=int, default=100, help='The maximum number of moves per episode.')
+    parser.add_argument('--maxmoves', type=int, default=2500, help='The maximum number of moves per episode.')
     # Q-Learning arguments
     parser.add_argument('--epsilon', type=float, default=0.1, help='The exploration rate for the Q-Learning agent. range: [0,1]')
     parser.add_argument('--alpha', type=float, default=0.1, help='The learning rate for the Q-Learning agent. range: [0,1]')
@@ -65,7 +65,15 @@ if __name__ == "__main__":
             domain = train_domains[didx]
             agent.domains[domain.task_id] = domain
             domain.agent = agent
-            domain.play_episode()
+            steps = 0
+            domain.start()
+            while steps < args.teststeps:
+                # Keep restarting the episodes until we've gone the number of steps
+                if not domain.episode_running:
+                    domain.start()
+                # Step forward in the domain
+                domain.step()
+                steps += 1
         print 'Testing...'
         # TODO: Freeze the memory of the agent and restart it for every testing domain
         # so that it does not learn from previous test domains. Not a problem for Q-Learning.
