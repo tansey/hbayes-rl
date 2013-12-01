@@ -51,7 +51,7 @@ if __name__ == "__main__":
     SIZE = args.colors * NUM_RELATIVE_CELLS
 
     agents = get_agents(args)
-    niw_true = NormalInverseWishartDistribution(np.zeros(SIZE) - 3., 1., SIZE+1, np.identity(SIZE))
+    niw_true = NormalInverseWishartDistribution(np.zeros(SIZE) - 3., 1., SIZE+2, np.identity(SIZE))
     true_params = [niw_true.sample() for _ in range(args.classes)]
     classes = [MdpClass(i, mean, cov) for i,(mean,cov) in enumerate(true_params)]
     test_domains = [create_domain(d, args, classes) for d in range(args.testsize)]
