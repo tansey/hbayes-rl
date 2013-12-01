@@ -13,10 +13,10 @@ def get_agents(args):
     agents = []
     for mdps in args.trainsize:
         if args.agent == 'qlearning':
-            agents.append(QAgent(args.gridwidth, args.gridheight, args.colors, mdps+args.testsize, 'Q ({0} MPDs)'.format(mdps),\
+            agents.append(QAgent(args.gridwidth, args.gridheight, args.colors, mdps+1, 'Q ({0} MPDs)'.format(mdps),\
                             args.epsilon, args.alpha, args.gamma))
         elif args.agent == 'multibayes':
-            agents.append(MultiTaskBayesianAgent(args.gridwidth, args.gridheight, args.colors, mdps+args.testsize, args.rstdev, name='MTRL ({0} MDPs)'.format(mdps)))
+            agents.append(MultiTaskBayesianAgent(args.gridwidth, args.gridheight, args.colors, mdps+1, args.rstdev, name='MTRL ({0} MDPs)'.format(mdps)))
         else:
             raise Exception('Unsupported agent type: ' + args.agent)
     return agents
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     true_params = [niw_true.sample() for _ in range(args.classes)]
     classes = [MdpClass(i, mean, cov) for i,(mean,cov) in enumerate(true_params)]
     test_domains = [create_domain(d, args, classes) for d in range(args.testsize)]
-    train_domains = [create_domain(d, args, classes) for d in range(args.testsize, args.testsize+max(args.trainsize))]
+    train_domains = [create_domain(d, args, classes) for d in range(max(args.trainsize))]
     agent_rewards = []
 
     for agent,training in zip(agents,args.trainsize):
@@ -72,6 +72,8 @@ if __name__ == "__main__":
         avg_rewards = np.array([0] * (args.teststeps / args.stepsize + 1))
         domain_weight = 1. / float(args.testsize)
         for domain in test_domains:
+            domain.task_id = training
+            agent.clear_memory(domain.task_id)
             agent.recent_rewards = [] # clear the reward history
             agent.domains[domain.task_id] = domain
             domain.agent = agent

@@ -77,6 +77,13 @@ class Agent(object):
         if len(self.recent_rewards) > 10:
             self.recent_rewards.pop(0)
 
+    def clear_memory(self, idx):
+        self.state[idx] = None
+        self.total_episodes -= self.domain_episodes[idx]
+        self.domain_episodes[idx] = 0
+        self.domains[idx] = None
+        self.location[idx] = None
+
 class GridWorld(object):
     def __init__(self, task_id, color_location_weights, reward_stdev = 2, agent = None, width = 15, height = 15, max_moves = 100, start = (0,0), goal = None):
         self.task_id = task_id

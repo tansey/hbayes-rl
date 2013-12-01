@@ -36,6 +36,7 @@ class MdpClass(object):
 
 class NormalInverseWishartDistribution(object):
     def __init__(self, mu, lmbda, nu, psi):
+        assert(nu > psi.shape[0]+1)
         self.mu = mu
         self.lmbda = float(lmbda)
         self.nu = nu
@@ -348,12 +349,14 @@ class MultiTaskBayesianAgent(Agent):
                 # Remove the current mdp from the counts
                 self.assignment_counts[a] -= 1
                 # Calculate likelihood of assigning to each class
+                """
                 print 'MDP: {0}'.format(j)
                 print 'Assignment counts: {0}'.format(self.assignment_counts)
                 print 'Weights: {0}'.format(self.weights[j])
                 print 'Likelihood 0: {0}'.format(self.classes[0].likelihood(self.weights[j]))
                 print 'Likelihood 1: {0}'.format(self.classes[1].likelihood(self.weights[j]))
                 print ''
+                """
                 assignment_probs = [self.assignment_counts[i] / (self.cur_mdp + self.alpha) * self.classes[i].likelihood(self.weights[j]) for i in range(len(self.classes))]
                 z = sum(assignment_probs)
                 # Sample an assignment proportional to the likelihoods
@@ -363,7 +366,7 @@ class MultiTaskBayesianAgent(Agent):
                 if z == 0. or assignment_probs[chosen.class_id] == 0.:
                     log_likelihood += math.log(1.0 / len(assignment_probs))
                 else:
-                    print 'Unnormalized probs: {0} Z: {1}'.format(assignment_probs[chosen.class_id], z)
+                    #print 'Unnormalized probs: {0} Z: {1}'.format(assignment_probs[chosen.class_id], z)
                     log_likelihood += math.log(assignment_probs[chosen.class_id] / z)
                 # If this was an auxillary class, update its proportionality to no longer be the concentration parameter.
                 if chosen.class_id >= aux_boundary:
@@ -448,10 +451,17 @@ class MultiTaskBayesianAgent(Agent):
         # TODO: Handle unknown goal locations by enabling passing a belief distribution over goal locations
         self.policy = value_iteration_to_policy(self.width, self.height, self.domains[self.cur_mdp].goal, cell_values)
 
-
     def sample_auxillary(self, class_id):
         (mean, cov) = self.auxillary_distribution.sample()
         return MdpClass(class_id, mean, cov)
+
+    def clear_memory(self, idx):
+        super(MultiTaskBayesianAgent, self).clear_memory(idx)
+        if self.cur_mdp is idx:
+            self.cur_mdp = -1
+            self.policy = None
+        self.states[idx] = []
+        self.rewards[idx] = []
 
 if __name__ == "__main__":
     TRUE_CLASS = 0

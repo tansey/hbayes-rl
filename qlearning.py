@@ -91,6 +91,16 @@ class QAgent(Agent):
         values = np.array([[self.greedy(idx,location=(x,y))[1] for y in range(domain.height)] for x in range(domain.width)])
         return (pi, values)
 
+    def clear_memory(self, idx):
+        super(QAgent, self).clear_memory(idx)
+        self.q[idx] = np.zeros((self.width, self.height, NUM_ACTIONS))
+        self.visits[idx] = np.zeros((self.width, self.height))
+        self.q_visits[idx] = np.zeros((self.width, self.height, NUM_ACTIONS))
+        self.update[idx] = False
+        self.prev_location[idx] = None
+        self.prev_action[idx] = None
+        self.prev_reward[idx] = None
+
 if __name__ == "__main__":
     width = 10
     height = 10
