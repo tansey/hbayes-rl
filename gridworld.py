@@ -111,7 +111,7 @@ class GridWorld(object):
         self.cell_states = np.zeros((self.width, self.height, len(self.color_location_weights)))
         for x in range(self.width):
             for y in range(self.height):
-                self.cell_states *= 0 # zero out the weights
+                #self.cell_states *= 0 # zero out the weights
                 self.cell_states[x,y,CURRENT*self.num_colors + self.cell_colors[x,y]] = 1
                 if y > 0:
                     self.cell_states[x,y,UP*self.num_colors + self.cell_colors[x,y-1]] = 1

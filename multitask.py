@@ -226,13 +226,14 @@ class LinearGaussianRewardModel(object):
             new_class = self.auxillaries[map_c - len(self.classes)]
             new_class.class_id = len(self.classes)
             self.map_class = new_class
+            self.weights = self.sample_weights(states, rewards)
             # None of the other auxillary classes were good enough -- resample them
             self.auxillaries = [new_class] + [self.sample_auxillary(len(self.classes) + i + 1) for i in range(self.m - 1)]
         else:
             self.map_class = self.classes[map_c]
+            self.weights = self.sample_weights(states, rewards)
             # None of the auxillary classes were good enough -- resample them
             self.auxillaries = [self.sample_auxillary(len(self.classes) + i) for i in range(self.m)]
-        self.weights = self.sample_weights(states, rewards)
 
     def sample_assignment(self, states, rewards, weights):
         """
@@ -253,7 +254,7 @@ class LinearGaussianRewardModel(object):
         return MdpClass(class_id, mean, cov)
 
     def sample_weights(self, states, rewards):
-        self.weights = self.map_class.sample_posterior(states, rewards)
+        return self.map_class.sample_posterior(states, rewards)
 
 
 class MultiTaskBayesianAgent(Agent):
@@ -278,6 +279,7 @@ class MultiTaskBayesianAgent(Agent):
         self.auxillary_distribution = NormalInverseWishartDistribution(np.zeros(self.state_size), 1., self.state_size+2, np.identity(self.state_size))
         self.classes = []
         self.assignments = []
+        self.weights = []
         self.model = LinearGaussianRewardModel(num_colors, self.reward_stdev, self.classes, self.assignments, self.auxillary_distribution, alpha=alpha, m=num_auxillaries)
         self.cur_mdp = 0
         self.steps_since_update = 0
@@ -307,7 +309,7 @@ class MultiTaskBayesianAgent(Agent):
         self.steps_since_update += 1
         if self.policy is None:
             return random.choice([UP, DOWN, LEFT, RIGHT])
-        return self.policy[self.state[idx]]
+        return self.policy[self.location[idx]]
 
     def set_state(self, idx, location, state):
         assert(idx == self.cur_mdp)
@@ -315,6 +317,7 @@ class MultiTaskBayesianAgent(Agent):
         if self.prev_reward is not None:
             self.model.add_observation(state, self.prev_reward)
             self.states[idx].append(state)
+        #print 'STATE: {0} LOCATION: {1}'.format(state, location)
 
     def observe_reward(self, idx, r):
         assert(idx == self.cur_mdp)
@@ -342,21 +345,13 @@ class MultiTaskBayesianAgent(Agent):
             log_likelihood = 0
             aux_boundary = len(self.classes)
             # Add auxillary classes
-            self.classes += [self.sample_auxillary(k) for k in range(self.num_auxillaries)]
+            self.classes += [self.sample_auxillary(len(self.classes) + k) for k in range(self.num_auxillaries)]
             self.assignment_counts += [0] * self.num_auxillaries
             # Sample class assignments
             for j,a in enumerate([x for x in self.assignments]):
                 # Remove the current mdp from the counts
                 self.assignment_counts[a] -= 1
                 # Calculate likelihood of assigning to each class
-                """
-                print 'MDP: {0}'.format(j)
-                print 'Assignment counts: {0}'.format(self.assignment_counts)
-                print 'Weights: {0}'.format(self.weights[j])
-                print 'Likelihood 0: {0}'.format(self.classes[0].likelihood(self.weights[j]))
-                print 'Likelihood 1: {0}'.format(self.classes[1].likelihood(self.weights[j]))
-                print ''
-                """
                 assignment_probs = [self.assignment_counts[i] * self.classes[i].posterior(states[j], rewards[j]).likelihood(self.weights[j]) for i in range(len(self.classes) - self.num_auxillaries)]
                 assignment_probs += [self.alpha / float(self.num_auxillaries) * self.classes[i].posterior(states[j], rewards[j]).likelihood(self.weights[j]) for i in range(len(self.classes) - self.num_auxillaries, len(self.classes))]
                 z = sum(assignment_probs)
@@ -365,7 +360,7 @@ class MultiTaskBayesianAgent(Agent):
                 # Multiply the likelihood of sampling all the parameters for MAP calculation at the end of sampling.
                 # Note: using log-likelihood to prevent underflows
                 if z <= 0. or assignment_probs[chosen.class_id] <= 0.:
-                    log_likelihood += math.log(1.0 / len(assignment_probs))
+                    log_likelihood += math.log(1.0 / float(len(assignment_probs)))
                 else:
                     log_likelihood += math.log(assignment_probs[chosen.class_id] / z)
                 self.assignments[j] = chosen.class_id
@@ -389,6 +384,13 @@ class MultiTaskBayesianAgent(Agent):
             self.assignment_counts = updated_counts
             # Sample weights
             class_posteriors = [self.classes[a].posterior(states[j], rewards[j]) for j,a in enumerate(self.assignments)]
+            print 'Class weights: {0}'.format([c.weights_mean[0:3] for c in self.classes])
+            print 'Assignments: {0}'.format(self.assignments)
+            print 'Posterior weights: {0}'.format([c.weights_mean[0:3] for c in class_posteriors])
+            print 'State shape: {0}'.format(states.shape)
+            print 'Reward shape: {0}'.format(rewards.shape)
+            print ''
+            print ''
             self.weights = [c.sample() for c in class_posteriors]
             # Multiply in the probability of selecting those weights
             log_likelihood += sum([math.log(c.likelihood(w)) for c,w in zip(class_posteriors, self.weights)])
@@ -421,8 +423,9 @@ class MultiTaskBayesianAgent(Agent):
         self.assignments = map_sample[1]
         self.assignment_counts = map_sample[2]
         self.weights = map_sample[3]
-        print 'MAP Distribution: {0}'.format(self.assignment_counts)
-        self.model = LinearGaussianRewardModel(self.colors, self.reward_stdev, self.classes, self.assignment_counts, self.auxillary_distribution, alpha=self.alpha, m=self.num_auxillaries)
+        print 'MAP Distribution: {0} (log-likelihood: {1})'.format(self.assignment_counts, max_likelihood)
+        print 'Class Weight Means: {0}'.format([c.weights_mean[0:3] for c in self.classes])
+        self.model = LinearGaussianRewardModel(self.colors, self.reward_stdev, self.classes, self.assignment_counts, self.auxillary_distribution.posterior(self.weights), alpha=self.alpha, m=self.num_auxillaries)
 
     def update_policy(self):
         """
@@ -436,12 +439,12 @@ class MultiTaskBayesianAgent(Agent):
         cell_values = np.zeros((self.width, self.height))
         for x in range(self.width):
             for y in range(self.height):
-                cell_values[x,y] = np.dot(weights, self.domains[self.cur_mdp].cell_states[x,y])
+                cell_values[x,y] = min(0, np.dot(weights, self.domains[self.cur_mdp].cell_states[x,y]))
         # TODO: Handle unknown goal locations by enabling passing a belief distribution over goal locations
         self.policy = value_iteration_to_policy(self.width, self.height, self.domains[self.cur_mdp].goal, cell_values)
 
     def sample_auxillary(self, class_id):
-        (mean, cov) = self.auxillary_distribution.sample()
+        (mean, cov) = self.auxillary_distribution.posterior(self.weights).sample()
         return MdpClass(class_id, mean, cov)
 
     def clear_memory(self, idx):
@@ -464,7 +467,7 @@ if __name__ == "__main__":
     true_params = [niw_true.sample() for _ in range(NUM_DISTRIBUTIONS)]
     classes = [MdpClass(i, mean, cov) for i,(mean,cov) in enumerate(true_params)]
     assignments = [1. for _ in classes]
-    auxillary = NormalInverseWishartDistribution(np.zeros(SIZE), 1., SIZE+2, np.identity(SIZE))
+    auxillary = NormalInverseWishartDistribution(np.zeros(SIZE) - 3., 1., SIZE+2, np.identity(SIZE))
 
     candidate_params = [auxillary.sample() for _ in range(NUM_DISTRIBUTIONS)]
     candidate_classes = [MdpClass(i, mean, cov) for i,(mean,cov) in enumerate(candidate_params)]

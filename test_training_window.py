@@ -21,8 +21,7 @@ def get_agents(args):
             raise Exception('Unsupported agent type: ' + args.agent)
     return agents
 
-def create_domain(task_id, args, classes):
-    clazz = random.choice(classes)
+def create_domain(task_id, args, clazz):
     w = np.random.multivariate_normal(clazz.weights_mean, clazz.weights_cov)
     world = GridWorld(task_id, w, args.rstdev, None, args.gridwidth, args.gridheight, args.maxmoves, (0,0), None)
     return world
@@ -51,13 +50,21 @@ if __name__ == "__main__":
     SIZE = args.colors * NUM_RELATIVE_CELLS
 
     agents = get_agents(args)
+
     niw_true = NormalInverseWishartDistribution(np.zeros(SIZE) - 3., 1., SIZE+2, np.identity(SIZE))
-    true_params = [niw_true.sample() for _ in range(args.classes)]
+    true_params = [niw_true.sample() for i in range(args.classes)]
+
+    #separated_means = [-10. - i*10. for i in range(args.classes)]
+    #true_params = [(np.ones(SIZE) * separated_means[i], np.identity(SIZE)*0.1) for i in range(args.classes)]
+
     classes = [MdpClass(i, mean, cov) for i,(mean,cov) in enumerate(true_params)]
-    test_domains = [create_domain(d, args, classes) for d in range(args.testsize)]
-    train_domains = [create_domain(d, args, classes) for d in range(max(args.trainsize))]
+    chosen_train = [i % len(classes) for i in range(max(args.trainsize))]
+    chosen_test = [i % len(classes) for i in range(args.testsize)]
+    train_domains = [create_domain(d, args, classes[chosen_train[d]]) for d in range(max(args.trainsize))]
+    test_domains = [create_domain(d, args, classes[chosen_test[d]]) for d in range(args.testsize)]
     agent_rewards = []
 
+    print 'Chosen training distribution: {0}'.format(chosen_train)
     for agent,training in zip(agents,args.trainsize):
         print 'Agent: {0}'.format(agent.name)
         print 'Training...'
@@ -77,9 +84,10 @@ if __name__ == "__main__":
         print 'Testing...'
         # TODO: Freeze the memory of the agent and restart it for every testing domain
         # so that it does not learn from previous test domains. Not a problem for Q-Learning.
-        avg_rewards = np.array([0] * (args.teststeps / args.stepsize + 1))
+        avg_rewards = np.array([0] * (args.teststeps / args.stepsize))
         domain_weight = 1. / float(args.testsize)
-        for domain in test_domains:
+        for i,domain in enumerate(test_domains):
+            print 'Test #{0}'.format(i)
             domain.task_id = training
             agent.clear_memory(domain.task_id)
             agent.recent_rewards = [] # clear the reward history
@@ -96,7 +104,7 @@ if __name__ == "__main__":
                 steps += 1
                 # If we've taken a step's worth of actions, measure the cumulative rewards
                 if steps % args.stepsize == 0:
-                    step_idx = steps / args.stepsize
+                    step_idx = steps / args.stepsize - 1
                     avg_rewards[step_idx] += domain_weight * sum(agent.recent_rewards)
             # Track the leftover steps in case stepsize is not a perfect divisor of teststeps.
             avg_rewards[-1] += domain_weight * sum(agent.recent_rewards)
@@ -109,7 +117,7 @@ if __name__ == "__main__":
     xvals = np.arange(num_steps)
     for i,rewards in enumerate(agent_rewards):
         # Plot each series
-        plt.plot(xvals, rewards[0:num_steps], label=agents[i].name, color=agent_colors[i])
+        plt.plot(xvals + 1, rewards[0:num_steps], label=agents[i].name, color=agent_colors[i])
         #plt.fill_between(xvals, avg[i] + stderr[i], avg[i] - stderr[i], facecolor=colors[i], alpha=0.2)
     plt.xlabel('Number of Steps x {0}'.format(args.stepsize))
     plt.ylabel('Cumulative Reward')
