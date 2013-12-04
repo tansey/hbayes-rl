@@ -173,7 +173,7 @@ class LinearGaussianRewardModel(object):
     """
     A model of the rewards for experiment 1 in the Wilson et al. paper. See section 4.4 for implementation details.
     """
-    def __init__(self, num_colors, reward_stdev, classes, assignments, auxillary_distribution, alpha=0.5, m=2, burn_in=100, mcmc_samples=500, thin=10):
+    def __init__(self, num_colors, reward_stdev, classes, assignments, auxillary_distribution, alpha=0.5, m=2, burn_in=100, mcmc_samples=500, thin=1):
         self.weights_size = num_colors * NUM_RELATIVE_CELLS
         self.reward_stdev = reward_stdev
         self.classes = classes
@@ -210,16 +210,29 @@ class LinearGaussianRewardModel(object):
         c = proportional_selection(self.assignments + [self.alpha / self.m for _ in self.auxillaries])
         mdp_class = (self.classes + self.auxillaries)[c]
         w = mdp_class.sample_posterior(states, rewards)
+        max_likelihood = None
         for i in range(self.mcmc_samples):
+            self.auxillaries = [self.sample_auxillary(len(self.classes) + j) for j in range(self.m)]
             mdp_class = self.sample_assignment(states, rewards, w)
             w = mdp_class.sample_posterior(states, rewards)
+            if mdp_class.class_id >= len(self.classes):
+                log_likelihood = self.alpha / float(self.m)
+            else:
+                log_likelihood = self.assignments[mdp_class.class_id]
+            log_likelihood += mdp_class.posterior(states, rewards).likelihood(w)
             if i >= self.burn_in and i % self.thin == 0:
                 samples[mdp_class.class_id] += 1
+                if max_likelihood is None or log_likelihood > max_likelihood:
+                    max_likelihood = log_likelihood
+                    map_c = mdp_class
+                    map_w = w
+        extra = ''
+        if c != map_c.class_id:
+            extra = '--- SWITCHED'
+        print 'Step {2}: Assignment Distribution: {0} Original: {1}->{3} {4}'.format(samples, c, len(self.states), map_c.class_id, extra)
+        '''
         # MAP calculations
         map_c = np.argmax(samples)
-        extra = ''
-        if c != map_c:
-            extra = '--- SWITCHED'
         print 'Step {2}: Assignment Distribution: {0} Original: {1}->{3} {4}'.format(samples, c, len(self.states), map_c, extra)
         if map_c >= len(self.classes):
             # We are keeping this auxillary class
@@ -234,6 +247,10 @@ class LinearGaussianRewardModel(object):
             self.weights = self.sample_weights(states, rewards)
             # None of the auxillary classes were good enough -- resample them
             self.auxillaries = [self.sample_auxillary(len(self.classes) + i) for i in range(self.m)]
+        '''
+        # Different MAP calculations
+        self.map_class = map_c
+        self.weights = map_w
 
     def sample_assignment(self, states, rewards, weights):
         """
@@ -265,7 +282,7 @@ class MultiTaskBayesianAgent(Agent):
     TODO: Currently the agent assumes all MDPs are observed sequentially. Extending the
     algorithm to handle multiple, simultaneous MDPs may require non-trivial changes.
     """
-    def __init__(self, width, height, num_colors, num_domains, reward_stdev, name=None, steps_per_policy=10, num_auxillaries=2, alpha=0.5, goal_known=True, burn_in=100, mcmc_samples=500, thin=10):
+    def __init__(self, width, height, num_colors, num_domains, reward_stdev, name=None, steps_per_policy=10, num_auxillaries=2, alpha=0.5, goal_known=True, burn_in=100, mcmc_samples=500, thin=1):
         super(MultiTaskBayesianAgent, self).__init__(width, height, num_colors, num_domains, name)
         self.reward_stdev = reward_stdev
         self.steps_per_policy = steps_per_policy
@@ -276,7 +293,7 @@ class MultiTaskBayesianAgent(Agent):
         self.mcmc_samples = mcmc_samples
         self.thin = thin
         self.state_size = num_colors * NUM_RELATIVE_CELLS
-        self.auxillary_distribution = NormalInverseWishartDistribution(np.zeros(self.state_size), 1., self.state_size+2, np.identity(self.state_size))
+        self.auxillary_distribution = NormalInverseWishartDistribution(np.zeros(self.state_size), 0.1, self.state_size+2, np.identity(self.state_size))
         self.classes = []
         self.assignments = []
         self.weights = []
@@ -383,17 +400,14 @@ class MultiTaskBayesianAgent(Agent):
             self.assignments = updated_assignments
             self.assignment_counts = updated_counts
             # Sample weights
+            class_priors = [self.classes[a] for j,a in enumerate(self.assignments)]
             class_posteriors = [self.classes[a].posterior(states[j], rewards[j]) for j,a in enumerate(self.assignments)]
-            print 'Class weights: {0}'.format([c.weights_mean[0:3] for c in self.classes])
-            print 'Assignments: {0}'.format(self.assignments)
-            print 'Posterior weights: {0}'.format([c.weights_mean[0:3] for c in class_posteriors])
-            print 'State shape: {0}'.format(states.shape)
-            print 'Reward shape: {0}'.format(rewards.shape)
-            print ''
-            print ''
             self.weights = [c.sample() for c in class_posteriors]
             # Multiply in the probability of selecting those weights
-            log_likelihood += sum([math.log(c.likelihood(w)) for c,w in zip(class_posteriors, self.weights)])
+            #log_likelihood += sum([math.log(c.likelihood(w)) for c,w in zip(class_posteriors, self.weights)])
+            #print 'Weight LLs: {0}'.format([c.likelihood(w) for c,w in zip(class_priors, self.weights)])
+            log_likelihood += sum([math.log(max(c.likelihood(w),1e-300)) for c,w in zip(class_priors, self.weights)])
+            partial_log_likelihood = log_likelihood
             # Sample class parameters
             weight_clusters = [[]] * len(self.classes)
             for widx,a in enumerate(self.assignments):
@@ -409,6 +423,18 @@ class MultiTaskBayesianAgent(Agent):
                 log_likelihood += cluster_posterior.log_likelihood(mu,sigma)
             # Record samples
             if iteration >= self.burn_in and iteration % self.thin == 0:
+                '''
+                print 'Class weights: {0}'.format([[round(w,2) for w in c.weights_mean] for c in self.classes])
+                print 'Class cov: {0}'.format([[round(w,2) for w in c.weights_cov.diagonal()] for c in self.classes])
+                print 'Assignments: {0}'.format(self.assignments)
+                print 'Posterior weights: {0}'.format([[round(w,2) for w in c.weights_mean] for c in class_posteriors])
+                print 'Posterior cov: {0}'.format([[round(w,2) for w in c.weights_cov.diagonal()] for c in class_posteriors])
+                print 'State shape: {0}'.format(states.shape)
+                print 'Reward shape: {0}'.format(rewards.shape)
+                print 'Log-likelihood: {0}'.format(log_likelihood)
+                print ''
+                print ''
+                '''
                 # TODO: import deepcopy for speed (meh, it's all sooo slow anyway)
                 classes_copy = [x for x in self.classes]
                 assignments_copy = [x for x in self.assignments]
@@ -418,13 +444,16 @@ class MultiTaskBayesianAgent(Agent):
                 if max_likelihood is None or log_likelihood > max_likelihood:
                     map_sample = samples[-1]
                     max_likelihood = log_likelihood
+                    max_partial_likelihood = partial_log_likelihood
         # Proceed with the MAP parameters
         self.classes = map_sample[0]
         self.assignments = map_sample[1]
         self.assignment_counts = map_sample[2]
         self.weights = map_sample[3]
-        print 'MAP Distribution: {0} (log-likelihood: {1})'.format(self.assignment_counts, max_likelihood)
-        print 'Class Weight Means: {0}'.format([c.weights_mean[0:3] for c in self.classes])
+        print 'MAP Distribution: {0} (log-likelihood: {1}) Partial: {2}'.format(self.assignment_counts, max_likelihood, max_partial_likelihood)
+        print 'MAP Assignments: {0}'.format(self.assignments)
+        print 'Class Weight Means: {0}'.format([[round(w, 2) for w in c.weights_mean] for c in self.classes])
+        print 'Class Weight Cov: {0}'.format([[round(w, 2) for w in c.weights_cov.diagonal()] for c in self.classes])
         self.model = LinearGaussianRewardModel(self.colors, self.reward_stdev, self.classes, self.assignment_counts, self.auxillary_distribution.posterior(self.weights), alpha=self.alpha, m=self.num_auxillaries)
 
     def update_policy(self):

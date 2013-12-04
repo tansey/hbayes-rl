@@ -54,8 +54,12 @@ if __name__ == "__main__":
     niw_true = NormalInverseWishartDistribution(np.zeros(SIZE) - 3., 1., SIZE+2, np.identity(SIZE))
     true_params = [niw_true.sample() for i in range(args.classes)]
 
-    #separated_means = [-10. - i*10. for i in range(args.classes)]
-    #true_params = [(np.ones(SIZE) * separated_means[i], np.identity(SIZE)*0.1) for i in range(args.classes)]
+    #separated_means = []
+    #separated_means.append(np.ones(SIZE) * -10.)
+    #separated_means.append(np.arange(SIZE) * -50.)
+    #separated_means.append(np.arange(SIZE)[::-1] * -10.)
+    #separated_means.append(np.random.rand(SIZE) * -10.)
+    #true_params = [(separated_means[i % len(separated_means)], np.identity(SIZE)*0.1) for i in range(args.classes)]
 
     classes = [MdpClass(i, mean, cov) for i,(mean,cov) in enumerate(true_params)]
     chosen_train = [i % len(classes) for i in range(max(args.trainsize))]
@@ -114,10 +118,10 @@ if __name__ == "__main__":
     ax = plt.subplot(111)
     num_steps = args.teststeps / args.stepsize
     plt.xlim((0,num_steps))
-    xvals = np.arange(num_steps)
+    xvals = np.arange(num_steps-1)
     for i,rewards in enumerate(agent_rewards):
         # Plot each series
-        plt.plot(xvals + 1, rewards[0:num_steps], label=agents[i].name, color=agent_colors[i])
+        plt.plot(xvals + 1, rewards[0:num_steps-1], label=agents[i].name, color=agent_colors[i])
         #plt.fill_between(xvals, avg[i] + stderr[i], avg[i] - stderr[i], facecolor=colors[i], alpha=0.2)
     plt.xlabel('Number of Steps x {0}'.format(args.stepsize))
     plt.ylabel('Cumulative Reward')
