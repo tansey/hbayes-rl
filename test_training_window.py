@@ -8,17 +8,20 @@ from multitask import MultiTaskBayesianAgent, MdpClass, NormalInverseWishartDist
 import random
 import matplotlib.pyplot as plt
 import numpy as np
+import csv
+import math
 
 def get_agents(args):
     agents = []
-    for mdps in args.trainsize:
-        if args.agent == 'qlearning':
-            agents.append(QAgent(args.gridwidth, args.gridheight, args.colors, mdps+1, 'Q ({0} MPDs)'.format(mdps),\
-                            args.epsilon, args.alpha, args.gamma))
-        elif args.agent == 'multibayes':
-            agents.append(MultiTaskBayesianAgent(args.gridwidth, args.gridheight, args.colors, mdps+1, args.rstdev, name='MTRL ({0} MDPs)'.format(mdps)))
-        else:
-            raise Exception('Unsupported agent type: ' + args.agent)
+    for atype in args.agents:
+        for mdps in args.trainsize:
+            if atype == 'qlearning':
+                agents.append((QAgent(args.gridwidth, args.gridheight, args.colors, mdps+1, 'Q-Learning', args.epsilon, args.alpha, args.gamma),0))
+                break # No use adding more than one q-learning agent.
+            elif atype == 'multibayes':
+                agents.append((MultiTaskBayesianAgent(args.gridwidth, args.gridheight, args.colors, mdps+1, args.rstdev, name='MTRL ({0} MDPs)'.format(mdps)),mdps))
+            else:
+                raise Exception('Unsupported agent type: ' + atype)
     return agents
 
 def create_domain(task_id, args, clazz):
@@ -28,7 +31,7 @@ def create_domain(task_id, args, clazz):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Tests an agent on a multi-task RL gridworld domain.')
-    parser.add_argument('agent', choices=['qlearning', 'singlebayes', 'multibayes'])
+    parser.add_argument('agents', nargs='+', choices=['qlearning', 'singlebayes', 'multibayes'])
     # General experiment arguments
     parser.add_argument('--classes', type=int, default=4, help='The number of classes that partition the set of MDPs.')
     parser.add_argument('--trainsize', type=int, nargs='*', default=[0,4,8,16], help='The number of MDP domains to train before evaluating.')
@@ -66,10 +69,12 @@ if __name__ == "__main__":
     chosen_test = [i % len(classes) for i in range(args.testsize)]
     train_domains = [create_domain(d, args, classes[chosen_train[d]]) for d in range(max(args.trainsize))]
     test_domains = [create_domain(d, args, classes[chosen_test[d]]) for d in range(args.testsize)]
-    agent_rewards = []
+    avg = []
+    stdev = []
+    stderr = []
 
     print 'Chosen training distribution: {0}'.format(chosen_train)
-    for agent,training in zip(agents,args.trainsize):
+    for agent,training in agents:
         print 'Agent: {0}'.format(agent.name)
         print 'Training...'
         for didx in range(training):
@@ -88,8 +93,7 @@ if __name__ == "__main__":
         print 'Testing...'
         # TODO: Freeze the memory of the agent and restart it for every testing domain
         # so that it does not learn from previous test domains. Not a problem for Q-Learning.
-        avg_rewards = np.array([0] * (args.teststeps / args.stepsize))
-        domain_weight = 1. / float(args.testsize)
+        avg_rewards = np.zeros((args.teststeps / args.stepsize, len(test_domains)))
         for i,domain in enumerate(test_domains):
             print 'Test #{0}'.format(i)
             domain.task_id = training
@@ -109,20 +113,31 @@ if __name__ == "__main__":
                 # If we've taken a step's worth of actions, measure the cumulative rewards
                 if steps % args.stepsize == 0:
                     step_idx = steps / args.stepsize - 1
-                    avg_rewards[step_idx] += domain_weight * sum(agent.recent_rewards)
+                    avg_rewards[step_idx][i] += sum(agent.recent_rewards)
             # Track the leftover steps in case stepsize is not a perfect divisor of teststeps.
-            avg_rewards[-1] += domain_weight * sum(agent.recent_rewards)
-        agent_rewards.append(avg_rewards)
-        
-    agent_colors = ['red','blue','yellow', 'green', 'orange', 'purple', 'brown'] # max 7 agents
+            if args.teststeps % args.stepsize > 0:
+                avg_rewards[-1][i] += sum(agent.recent_rewards)
+        avg.append(avg_rewards.mean(axis=1))
+        stdev.append(avg_rewards.std(axis=1))
+        stderr.append(stdev[-1] / math.sqrt(len(test_domains)))
+        #agent_rewards.append(avg_rewards)
+        f = open('agent_{0}.csv'.format(len(avg)), 'wb')
+        writer = csv.writer(f)
+        writer.writerow(['StepTimes{0}'.format(args.stepsize), 'Avg', 'Stdev', 'Stderr'])
+        for i in range(len(avg[-1])):
+            writer.writerow([i, avg[-1][i], stdev[-1][i], stderr[-1][i]])
+        f.flush()
+        f.close()
+    
+    agent_colors = ['red','blue', 'green', 'brown', 'purple', 'yellow', 'orange'] # max 7 agents
     ax = plt.subplot(111)
     num_steps = args.teststeps / args.stepsize
     plt.xlim((0,num_steps))
-    xvals = np.arange(num_steps-1)
-    for i,rewards in enumerate(agent_rewards):
+    for i in range(len(avg)):
+        xvals = np.arange(len(avg[i]))
         # Plot each series
-        plt.plot(xvals + 1, rewards[0:num_steps-1], label=agents[i].name, color=agent_colors[i])
-        #plt.fill_between(xvals, avg[i] + stderr[i], avg[i] - stderr[i], facecolor=colors[i], alpha=0.2)
+        plt.plot(xvals + 1, avg[i], label=agents[i][0].name, color=agent_colors[i])
+        plt.fill_between(xvals + 1, avg[i] + stderr[i], avg[i] - stderr[i], facecolor=agent_colors[i], alpha=0.2)
     plt.xlabel('Number of Steps x {0}'.format(args.stepsize))
     plt.ylabel('Cumulative Reward')
     #plt.ylim([0,1])
